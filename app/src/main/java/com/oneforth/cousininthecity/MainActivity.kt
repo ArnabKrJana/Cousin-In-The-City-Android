@@ -5,25 +5,36 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
-import com.oneforth.cousininthecity.ui.theme.CousinInTheCityAndroidTheme
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.oneforth.cousininthecity.ui.screens.ChatScreen
+import com.oneforth.cousininthecity.ui.screens.DrawerContent
+import com.oneforth.cousininthecity.ui.theme.*
+import com.oneforth.cousininthecity.ui.viewmodels.ChatViewModel
+import com.oneforth.cousininthecity.ui.viewmodels.ThreadViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             CousinInTheCityAndroidTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    CousinApp()
                 }
             }
         }
@@ -31,17 +42,50 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
+fun CousinApp() {
+    val navController = rememberNavController()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    CousinInTheCityAndroidTheme {
-        Greeting("Android")
+    val threadViewModel: ThreadViewModel = hiltViewModel()
+    val chatViewModel: ChatViewModel = hiltViewModel()
+
+    val threadUiState by threadViewModel.uiState.collectAsState()
+    val chatUiState by chatViewModel.uiState.collectAsState()
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        threadViewModel.loadThreads()
+        chatViewModel.loadThread("1")
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            DrawerContent(
+                threadUiState = threadUiState,
+                onNewChat = {
+                    threadViewModel.createNewThread("New Relocation Plan") { newThreadId ->
+                        chatViewModel.loadThread(newThreadId)
+                        scope.launch { drawerState.close() }
+                    }
+                },
+                onThreadSelected = { threadId ->
+                    chatViewModel.loadThread(threadId)
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        NavHost(navController = navController, startDestination = "chat") {
+            composable("chat") {
+                ChatScreen(
+                    uiState = chatUiState,
+                    uiEventFlow = chatViewModel.uiEvent,
+                    onSendMessage = { prompt -> chatViewModel.sendMessage(prompt) },
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onToggleListening = { chatViewModel.toggleListening() }
+                )
+            }
+        }
     }
 }

@@ -8,6 +8,7 @@ import com.oneforth.cousininthecity.domain.model.ChatThread
 import com.oneforth.cousininthecity.domain.model.MessageRole
 import com.oneforth.cousininthecity.domain.repository.ChatRepository
 import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
 
 class ChatRepositoryImpl @Inject constructor(
     private val api: CousinApi
