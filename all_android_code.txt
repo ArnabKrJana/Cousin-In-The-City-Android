@@ -1,0 +1,2011 @@
+
+====================================================================================================
+FILE: app\src\androidTest\java\com\oneforth\cousininthecity\ExampleInstrumentedTest.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity
+
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.ext.junit.runners.AndroidJUnit4
+
+import org.junit.Test
+import org.junit.runner.RunWith
+
+import org.junit.Assert.*
+
+/**
+ * Instrumented test, which will execute on an Android device.
+ *
+ * See [testing documentation](http://d.android.com/tools/testing).
+ */
+@RunWith(AndroidJUnit4::class)
+class ExampleInstrumentedTest {
+    @Test
+    fun useAppContext() {
+        // Context of the app under test.
+        val appContext = InstrumentationRegistry.getInstrumentation().targetContext
+        assertEquals("com.oneforth.cousininthecity", appContext.packageName)
+    }
+}
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\CousinApplication.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity
+
+import android.app.Application
+import dagger.hilt.android.HiltAndroidApp
+
+@HiltAndroidApp
+class CousinApplication : Application()
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\MainActivity.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import com.oneforth.cousininthecity.ui.screens.ChatScreen
+import com.oneforth.cousininthecity.ui.screens.DrawerContent
+import com.oneforth.cousininthecity.ui.theme.*
+import com.oneforth.cousininthecity.ui.viewmodels.ChatViewModel
+import com.oneforth.cousininthecity.ui.viewmodels.ThreadViewModel
+import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            CousinInTheCityAndroidTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    CousinApp()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CousinApp() {
+    val navController = rememberNavController()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    val threadViewModel: ThreadViewModel = hiltViewModel()
+    val chatViewModel: ChatViewModel = hiltViewModel()
+
+    val threadUiState by threadViewModel.uiState.collectAsState()
+    val chatUiState by chatViewModel.uiState.collectAsState()
+
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        threadViewModel.loadThreads()
+        chatViewModel.loadThread("1")
+    }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            DrawerContent(
+                threadUiState = threadUiState,
+                onNewChat = {
+                    threadViewModel.createNewThread("New Relocation Plan") { newThreadId ->
+                        chatViewModel.loadThread(newThreadId)
+                        scope.launch { drawerState.close() }
+                    }
+                },
+                onThreadSelected = { threadId ->
+                    chatViewModel.loadThread(threadId)
+                    scope.launch { drawerState.close() }
+                }
+            )
+        }
+    ) {
+        NavHost(navController = navController, startDestination = "chat") {
+            composable("chat") {
+                ChatScreen(
+                    uiState = chatUiState,
+                    uiEventFlow = chatViewModel.uiEvent,
+                    onSendMessage = { prompt -> chatViewModel.sendMessage(prompt) },
+                    onOpenDrawer = { scope.launch { drawerState.open() } },
+                    onToggleListening = { chatViewModel.toggleListening() }
+                )
+            }
+        }
+    }
+}
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\local\UserPreferencesDataSource.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.local
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import java.util.UUID
+import javax.inject.Inject
+import javax.inject.Singleton
+
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "user_preferences")
+
+@Singleton
+class UserPreferencesDataSource @Inject constructor(
+    @param:ApplicationContext private val context: Context
+) {
+    private val deviceIdKey = stringPreferencesKey("device_id")
+
+    suspend fun getOrCreateDeviceId(): String {
+        val existingId = context.dataStore.data.map { preferences ->
+            preferences[deviceIdKey]
+        }.first()
+
+        if (!existingId.isNullOrBlank()) {
+            return existingId
+        }
+
+        val newDeviceId = UUID.randomUUID().toString()
+        context.dataStore.edit { preferences ->
+            preferences[deviceIdKey] = newDeviceId
+        }
+        return newDeviceId
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\mapper\ChatMappers.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.mapper
+
+import com.oneforth.cousininthecity.data.remote.dto.AppUserDto
+import com.oneforth.cousininthecity.data.remote.dto.ChatThreadDto
+import com.oneforth.cousininthecity.data.remote.dto.MessageDto
+import com.oneforth.cousininthecity.domain.model.AppUser
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.domain.model.MessageRole
+
+fun AppUserDto.toDomain(): AppUser = AppUser(
+    deviceId = deviceId
+)
+
+fun ChatThreadDto.toDomain(): ChatThread = ChatThread(
+    id = id,
+    deviceId = deviceId,
+    title = title,
+    updatedAt = updatedAt
+)
+
+fun MessageDto.toDomain(): ChatMessage {
+    val domainRole = when (role.uppercase()) {
+        "USER" -> MessageRole.USER
+        "ASSISTANT" -> MessageRole.ASSISTANT
+        else -> MessageRole.ASSISTANT
+    }
+    return ChatMessage(
+        role = domainRole,
+        content = content
+    )
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\CousinApi.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote
+
+import com.oneforth.cousininthecity.data.remote.dto.AppUserDto
+import com.oneforth.cousininthecity.data.remote.dto.ChatInputDto
+import com.oneforth.cousininthecity.data.remote.dto.ChatOutputDto
+import com.oneforth.cousininthecity.data.remote.dto.ChatThreadDto
+import com.oneforth.cousininthecity.data.remote.dto.MessageDto
+import retrofit2.http.Body
+import retrofit2.http.GET
+import retrofit2.http.POST
+import retrofit2.http.Path
+import retrofit2.http.Query
+
+interface CousinApi {
+
+    @POST("/api/chat/users/{deviceId}")
+    suspend fun registerUser(
+        @Path("deviceId") deviceId: String
+    ): AppUserDto
+
+    @GET("/api/chat/users/{deviceId}/threads")
+    suspend fun getThreads(
+        @Path("deviceId") deviceId: String
+    ): List<ChatThreadDto>
+
+    @POST("/api/chat/users/{deviceId}/threads")
+    suspend fun createThread(
+        @Path("deviceId") deviceId: String,
+        @Query("title") title: String
+    ): ChatThreadDto
+
+    @GET("/api/chat/history/{threadId}")
+    suspend fun getHistory(
+        @Path("threadId") threadId: String
+    ): List<MessageDto>
+
+    @POST("/api/chat")
+    suspend fun chat(
+        @Body input: ChatInputDto
+    ): ChatOutputDto
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\dto\AppUserDto.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote.dto
+
+data class AppUserDto(
+    val deviceId: String
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\dto\ChatInputDto.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote.dto
+
+data class ChatInputDto(
+    val prompt: String,
+    val conversationId: String
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\dto\ChatOutputDto.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote.dto
+
+data class ChatOutputDto(
+    val content: String
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\dto\ChatThreadDto.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote.dto
+
+data class ChatThreadDto(
+    val id: String,
+    val deviceId: String,
+    val title: String,
+    val updatedAt: String? = null
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\remote\dto\MessageDto.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.remote.dto
+
+data class MessageDto(
+    val role: String,
+    val content: String
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\repository\ChatRepositoryImpl.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.repository
+
+import com.oneforth.cousininthecity.data.mapper.toDomain
+import com.oneforth.cousininthecity.data.remote.CousinApi
+import com.oneforth.cousininthecity.data.remote.dto.ChatInputDto
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.domain.model.MessageRole
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import javax.inject.Inject
+import kotlin.time.Duration.Companion.milliseconds
+
+class ChatRepositoryImpl @Inject constructor(
+    private val api: CousinApi
+) : ChatRepository {
+
+    // In-memory cache for now (will be replaced by Room DB later)
+    private val memoryThreads = mutableListOf<ChatThread>()
+    private val memoryHistory = mutableMapOf<String, MutableList<ChatMessage>>()
+
+    override suspend fun getThreads(deviceId: String): Result<List<ChatThread>> {
+        return runCatching {
+            val remoteThreads = api.getThreads(deviceId).map { it.toDomain() }
+            (remoteThreads + memoryThreads).distinctBy { it.id }
+        }.recover {
+            memoryThreads
+        }
+    }
+
+    override suspend fun createThread(deviceId: String, title: String): Result<ChatThread> {
+        val newThread = ChatThread(
+            id = System.currentTimeMillis().toString(),
+            title = title,
+            deviceId = deviceId
+        )
+        memoryThreads.add(0, newThread)
+        memoryHistory[newThread.id] = mutableListOf()
+        return Result.success(newThread)
+    }
+
+    override suspend fun getHistory(threadId: String): Result<List<ChatMessage>> {
+        if (memoryHistory.containsKey(threadId)) {
+            return Result.success(memoryHistory[threadId] ?: emptyList())
+        }
+        return runCatching {
+            api.getHistory(threadId).map { it.toDomain() }
+        }.recover {
+            emptyList()
+        }
+    }
+
+    override suspend fun sendMessage(prompt: String, conversationId: String): Result<ChatMessage> {
+        if (memoryHistory.containsKey(conversationId)) {
+            memoryHistory[conversationId]?.add(ChatMessage(role = MessageRole.USER, content = prompt))
+        }
+
+        return runCatching {
+            val response = api.chat(ChatInputDto(prompt = prompt, conversationId = conversationId))
+            val assistantMessage = ChatMessage(role = MessageRole.ASSISTANT, content = response.content)
+            
+            if (memoryHistory.containsKey(conversationId)) {
+                memoryHistory[conversationId]?.add(assistantMessage)
+            }
+            
+            assistantMessage
+        }
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\data\repository\UserRepositoryImpl.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.data.repository
+
+import com.oneforth.cousininthecity.data.local.UserPreferencesDataSource
+import com.oneforth.cousininthecity.data.mapper.toDomain
+import com.oneforth.cousininthecity.data.remote.CousinApi
+import com.oneforth.cousininthecity.domain.model.AppUser
+import com.oneforth.cousininthecity.domain.repository.UserRepository
+import javax.inject.Inject
+
+class UserRepositoryImpl @Inject constructor(
+    private val api: CousinApi,
+    private val localDataSource: UserPreferencesDataSource
+) : UserRepository {
+
+    override suspend fun getOrCreateDeviceId(): String {
+        return localDataSource.getOrCreateDeviceId()
+    }
+
+    override suspend fun registerUser(deviceId: String): Result<AppUser> {
+        return runCatching {
+            api.registerUser(deviceId).toDomain()
+        }
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\di\DataModule.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.di
+
+import com.oneforth.cousininthecity.data.repository.ChatRepositoryImpl
+import com.oneforth.cousininthecity.data.repository.UserRepositoryImpl
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import com.oneforth.cousininthecity.domain.repository.UserRepository
+import dagger.Binds
+import dagger.Module
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class DataModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindUserRepository(
+        userRepositoryImpl: UserRepositoryImpl
+    ): UserRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindChatRepository(
+        chatRepositoryImpl: ChatRepositoryImpl
+    ): ChatRepository
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\di\NetworkModule.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.di
+
+import com.oneforth.cousininthecity.data.remote.CousinApi
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.components.SingletonComponent
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
+import java.util.concurrent.TimeUnit
+import javax.inject.Singleton
+
+@Module
+@InstallIn(SingletonComponent::class)
+object NetworkModule {
+
+    private const val BASE_URL = "http://192.168.0.108:8080/"
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        return OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .baseUrl(BASE_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCousinApi(retrofit: Retrofit): CousinApi {
+        return retrofit.create(CousinApi::class.java)
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\model\AppUser.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.model
+
+data class AppUser(
+    val deviceId: String
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\model\ChatMessage.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.model
+
+import java.util.UUID
+
+enum class MessageRole {
+    USER, ASSISTANT, SYSTEM
+}
+
+data class ChatMessage(
+    val id: String = UUID.randomUUID().toString(),
+    val role: MessageRole,
+    val content: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\model\ChatThread.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.model
+
+data class ChatThread(
+    val id: String,
+    val deviceId: String,
+    val title: String,
+    val updatedAt: String? = null
+)
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\repository\ChatRepository.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.repository
+
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.ChatThread
+
+interface ChatRepository {
+    suspend fun getThreads(deviceId: String): Result<List<ChatThread>>
+    suspend fun createThread(deviceId: String, title: String): Result<ChatThread>
+    suspend fun getHistory(threadId: String): Result<List<ChatMessage>>
+    suspend fun sendMessage(prompt: String, conversationId: String): Result<ChatMessage>
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\repository\UserRepository.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.repository
+
+import com.oneforth.cousininthecity.domain.model.AppUser
+
+interface UserRepository {
+    suspend fun getOrCreateDeviceId(): String
+    suspend fun registerUser(deviceId: String): Result<AppUser>
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\usecase\CreateChatThreadUseCase.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.usecase
+
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import com.oneforth.cousininthecity.domain.repository.UserRepository
+import javax.inject.Inject
+
+class CreateChatThreadUseCase @Inject constructor(
+    private val chatRepository: ChatRepository,
+    private val userRepository: UserRepository
+) {
+    suspend operator fun invoke(title: String): Result<ChatThread> {
+        val deviceId = userRepository.getOrCreateDeviceId()
+        return chatRepository.createThread(deviceId, title)
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\usecase\GetChatHistoryUseCase.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.usecase
+
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import javax.inject.Inject
+
+class GetChatHistoryUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) {
+    suspend operator fun invoke(threadId: String): Result<List<ChatMessage>> {
+        return chatRepository.getHistory(threadId)
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\usecase\GetChatThreadsUseCase.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.usecase
+
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import com.oneforth.cousininthecity.domain.repository.UserRepository
+import javax.inject.Inject
+
+class GetChatThreadsUseCase @Inject constructor(
+    private val chatRepository: ChatRepository,
+    private val userRepository: UserRepository
+) {
+    suspend operator fun invoke(): Result<List<ChatThread>> {
+        val deviceId = userRepository.getOrCreateDeviceId()
+        return chatRepository.getThreads(deviceId)
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\usecase\RegisterUserUseCase.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.usecase
+
+import com.oneforth.cousininthecity.domain.model.AppUser
+import com.oneforth.cousininthecity.domain.repository.UserRepository
+import javax.inject.Inject
+
+class RegisterUserUseCase @Inject constructor(
+    private val userRepository: UserRepository
+) {
+    suspend operator fun invoke(): Result<AppUser> {
+        val deviceId = userRepository.getOrCreateDeviceId()
+        return userRepository.registerUser(deviceId)
+    }
+
+    suspend fun getDeviceId(): String {
+        return userRepository.getOrCreateDeviceId()
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\domain\usecase\SendMessageUseCase.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.domain.usecase
+
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.repository.ChatRepository
+import javax.inject.Inject
+
+class SendMessageUseCase @Inject constructor(
+    private val chatRepository: ChatRepository
+) {
+    suspend operator fun invoke(prompt: String, conversationId: String): Result<ChatMessage> {
+        return chatRepository.sendMessage(prompt, conversationId)
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\components\ChatShimmerBubble.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.components
+
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+
+@Composable
+fun ChatShimmerBubble(modifier: Modifier = Modifier) {
+    val transition = rememberInfiniteTransition(label = "ShimmerTransition")
+    val translateAnim = transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShimmerTranslation"
+    )
+
+    val shimmerColors = listOf(
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    )
+
+    val brush = Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset(translateAnim.value - 300f, translateAnim.value - 300f),
+        end = Offset(translateAnim.value, translateAnim.value)
+    )
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        horizontalArrangement = Arrangement.Start
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(min = 180.dp, max = 240.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                .padding(16.dp)
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(brush)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.6f)
+                        .height(14.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(brush)
+                )
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ChatShimmerBubblePreview() {
+    MaterialTheme {
+        ChatShimmerBubble()
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\components\EmptyChatState.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.components
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+
+@Composable
+fun EmptyChatState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Simplified Star Logo representation
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(
+                    brush = Brush.radialGradient(
+                        listOf(
+                            Color(0xFFFFB9B9),
+                            Color(0xFFDB4437),
+                            Color(0xFFF4B400)
+                        )
+                    ),
+                    shape = CircleShape
+                )
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+        Text(
+            text = "Let's jump in.",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun EmptyChatStatePreview() {
+    MaterialTheme {
+        EmptyChatState()
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\components\MessageBubble.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.components
+
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.MessageRole
+
+@Composable
+fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
+    val isUser = message.role == MessageRole.USER
+    val backgroundColor =
+        if (isUser) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val textColor =
+        if (isUser) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Box(
+            modifier = Modifier
+                .widthIn(max = 280.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(backgroundColor)
+                .padding(16.dp)
+        ) {
+            SelectionContainer {
+                Text(text = message.content, color = textColor, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun UserMessageBubblePreview() {
+    MaterialTheme {
+        MessageBubble(
+            message = ChatMessage(role = MessageRole.USER, content = "Hello Assistant!")
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun AssistantMessageBubblePreview() {
+    MaterialTheme {
+        MessageBubble(
+            message = ChatMessage(role = MessageRole.ASSISTANT, content = "Hello! How can I help you today?")
+        )
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\components\ThreadItem.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.components
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import com.oneforth.cousininthecity.domain.model.ChatThread
+
+@Composable
+fun ThreadItem(
+    thread: ChatThread,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 24.dp, vertical = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Outlined.ChatBubbleOutline,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(16.dp))
+        Text(
+            text = thread.title,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            color = MaterialTheme.colorScheme.onSurface
+        )
+        Icon(
+            Icons.Default.PushPin,
+            contentDescription = "Pin",
+            modifier = Modifier.size(16.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ThreadItemPreview() {
+    MaterialTheme {
+        ThreadItem(
+            thread = ChatThread(id = "1", title = "Mumbai Travel Guide", deviceId = "test"),
+            onClick = {}
+        )
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\screens\ChatScreen.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.screens
+
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.widget.Toast
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateContentSize
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.MessageRole
+import com.oneforth.cousininthecity.ui.components.ChatShimmerBubble
+import com.oneforth.cousininthecity.ui.components.EmptyChatState
+import com.oneforth.cousininthecity.ui.components.MessageBubble
+import com.oneforth.cousininthecity.ui.viewmodels.ChatUiState
+import com.oneforth.cousininthecity.ui.viewmodels.UiEvent
+import com.oneforth.cousininthecity.util.NativeIntentUtils
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ChatScreen(
+    modifier: Modifier = Modifier,
+    uiState: ChatUiState,
+    uiEventFlow: Flow<UiEvent>,
+    onSendMessage: (String) -> Unit,
+    onOpenDrawer: () -> Unit,
+    onToggleListening: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Collect one-off UI Events (Jarvis Intents & Snackbars)
+    LaunchedEffect(Unit) {
+        uiEventFlow.collect { event ->
+            when (event) {
+                is UiEvent.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(event.message)
+                }
+
+                is UiEvent.JarvisAddCalendar -> {
+                    val success = NativeIntentUtils.silentlyAddCalendarEvent(
+                        context, event.title, event.description,
+                        System.currentTimeMillis() + 86400000, // Dummy: +1 day
+                        System.currentTimeMillis() + 90000000
+                    )
+                    if (!success) Toast.makeText(
+                        context,
+                        "Requires Calendar Permission!",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+
+                is UiEvent.JarvisOpenMap -> {
+                    NativeIntentUtils.openGoogleMaps(context, event.locationQuery)
+                }
+
+                is UiEvent.JarvisSaveNote -> {
+                    NativeIntentUtils.saveToGoogleKeep(context, event.content)
+                }
+            }
+        }
+    }
+
+    val isDark = isSystemInDarkTheme()
+    val gradientColors = if (isDark) {
+        listOf(Color(0xFF0F0F11), Color(0xFF14244B)) // Gemini-like dark gradient
+    } else {
+        listOf(Color.White, Color(0xFFE3F2FD))
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = gradientColors
+                )
+            )
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Cousin ", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Text(
+                                "Assistant",
+                                fontSize = 20.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onOpenDrawer) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            modifier = Modifier.visible(false),
+                            onClick = { /* Profile */ }) {
+                            Icon(Icons.Filled.AccountCircle, contentDescription = "Profile")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    )
+                )
+            },
+            snackbarHost = { SnackbarHost(snackbarHostState) },
+            bottomBar = {
+                ChatInputField(
+                    onSendMessage = onSendMessage,
+                    isLoading = uiState.isLoading,
+                    isListening = uiState.isListening,
+                    onToggleListening = onToggleListening
+                )
+            }
+        ) { paddingValues ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues)
+            ) {
+                Crossfade(
+                    targetState = uiState.messages.isEmpty(),
+                    label = "ChatStateAnimation"
+                ) { isEmpty ->
+                    if (isEmpty) {
+                        EmptyChatState()
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(uiState.messages) { message ->
+                                MessageBubble(message)
+                            }
+                            if (uiState.isChatLoading) {
+                                item {
+                                    ChatShimmerBubble()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper object to encapsulate ToneGenerator and prevent NoClassDefFoundError during
+// Compose Preview inspection, as ToneGenerator is unavailable in Android Studio Layoutlib.
+private object ToneFeedbackHelper {
+    fun playTone(isListening: Boolean) {
+        runCatching {
+            val toneGen = ToneGenerator(AudioManager.STREAM_SYSTEM, 100)
+            val toneType =
+                if (isListening) ToneGenerator.TONE_PROP_ACK else ToneGenerator.TONE_PROP_BEEP
+            toneGen.startTone(toneType)
+        }
+    }
+}
+
+@Composable
+fun ChatInputField(
+    onSendMessage: (String) -> Unit,
+    isLoading: Boolean,
+    isListening: Boolean,
+    onToggleListening: () -> Unit
+) {
+    var text by remember { mutableStateOf("") }
+    val isPreview = LocalInspectionMode.current
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .imePadding()
+            .padding(16.dp)
+            .animateContentSize(),
+        shape = RoundedCornerShape(32.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(modifier = Modifier.visible(false), onClick = { /* Attachment */ }) {
+                Icon(Icons.Default.Add, contentDescription = "Add")
+            }
+
+            TextField(
+                value = text,
+                onValueChange = { text = it },
+                placeholder = { Text("Ask Cousin...") },
+                modifier = Modifier.weight(1f),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent
+                ),
+                maxLines = 4
+            )
+
+            if (text.isNotBlank()) {
+                Button(
+                    onClick = {
+                        onSendMessage(text)
+                        text = ""
+                    },
+                    enabled = !isLoading,
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Text("➤")
+                }
+            } else {
+                IconButton(onClick = {
+                    if (!isPreview) {
+                        ToneFeedbackHelper.playTone(isListening)
+                    }
+                    onToggleListening()
+                }) {
+                    Icon(
+                        Icons.Default.FiberManualRecord,
+                        tint = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentDescription = "Mic"
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ChatScreenPreview() {
+    MaterialTheme {
+        ChatScreen(
+            uiState = ChatUiState(
+                messages = listOf(
+                    ChatMessage(
+                        role = MessageRole.USER,
+                        content = "Hi, I need a flight to Mumbai."
+                    ),
+                    ChatMessage(
+                        role = MessageRole.ASSISTANT,
+                        content = "Sure, I can help with that. When are you planning to travel?"
+                    )
+                ),
+                isLoading = false
+            ),
+            uiEventFlow = emptyFlow(),
+            onSendMessage = {},
+            onOpenDrawer = {}
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun EmptyChatScreenPreview() {
+    MaterialTheme {
+        ChatScreen(
+            uiState = ChatUiState(messages = emptyList(), isLoading = false),
+            uiEventFlow = emptyFlow(),
+            onSendMessage = {},
+            onOpenDrawer = {}
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun ChatLoadingScreenPreview() {
+    MaterialTheme {
+        ChatScreen(
+            uiState = ChatUiState(
+                messages = listOf(
+                    ChatMessage(
+                        role = MessageRole.USER,
+                        content = "Hi, can you recommend some places to visit in Mumbai?"
+                    )
+                ),
+                isLoading = true,
+                isChatLoading = true
+            ),
+            uiEventFlow = emptyFlow(),
+            onSendMessage = {},
+            onOpenDrawer = {}
+        )
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\screens\DrawerContent.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.screens
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.ui.components.ThreadItem
+import com.oneforth.cousininthecity.ui.viewmodels.ThreadUiState
+
+@Composable
+fun DrawerContent(
+    threadUiState: ThreadUiState,
+    onNewChat: () -> Unit,
+    onThreadSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    ModalDrawerSheet(
+        modifier = modifier.fillMaxWidth(),
+        drawerContainerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Cousin Assistant", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            }
+
+            // New Chat Button
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp).clip(shape = CircleShape)
+                    .clickable { onNewChat() },
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.secondaryContainer
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "New Chat")
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text("New chat", fontWeight = FontWeight.Medium)
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            Text(
+                "Recents", 
+                modifier = Modifier.padding(horizontal = 24.dp), 
+                fontSize = 14.sp, 
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Thread List
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                if (threadUiState.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                } else {
+                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                        items(threadUiState.threads) { thread ->
+                            ThreadItem(
+                                thread = thread,
+                                onClick = { onThreadSelected(thread.id) }
+                            )
+                        }
+                    }
+                }
+            }
+            
+            // Bottom Profile Area
+            Row(
+                modifier = Modifier.visible(false)
+                    .fillMaxWidth()
+                    .background(color = MaterialTheme.colorScheme.onPrimary)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(MaterialTheme.colorScheme.primary, shape = MaterialTheme.shapes.extraLarge),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("A", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text("Arnab Kumar Jana", fontWeight = FontWeight.Medium)
+                }
+            }
+        }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DrawerContentPreview() {
+    MaterialTheme {
+        DrawerContent(
+            threadUiState = ThreadUiState(
+                threads = listOf(
+                    ChatThread( "1", title = "Mumbai Relocation", deviceId = "test"),
+                    ChatThread( "2", title = "Bangalore Budgeting", deviceId = "test")
+                ),
+                isLoading = false
+            ),
+            onNewChat = {},
+            onThreadSelected = {}
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DrawerContentLoadingPreview() {
+    MaterialTheme {
+        DrawerContent(
+            threadUiState = ThreadUiState(
+                threads = emptyList(),
+                isLoading = true
+            ),
+            onNewChat = {},
+            onThreadSelected = {}
+        )
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\theme\Color.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
+
+val Purple40 = Color(0xFF6650a4)
+val PurpleGrey40 = Color(0xFF625b71)
+val Pink40 = Color(0xFF7D5260)
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\theme\Theme.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.theme
+
+import android.app.Activity
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Purple80,
+    secondary = PurpleGrey80,
+    tertiary = Pink80
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Purple40,
+    secondary = PurpleGrey40,
+    tertiary = Pink40
+
+    /* Other default colors to override
+    background = Color(0xFFFFFBFE),
+    surface = Color(0xFFFFFBFE),
+    onPrimary = Color.White,
+    onSecondary = Color.White,
+    onTertiary = Color.White,
+    onBackground = Color(0xFF1C1B1F),
+    onSurface = Color(0xFF1C1B1F),
+    */
+)
+
+@Composable
+fun CousinInTheCityAndroidTheme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    // Dynamic color is available on Android 12+
+    dynamicColor: Boolean = true,
+    content: @Composable () -> Unit
+) {
+    val colorScheme = when {
+        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = content
+    )
+}
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\theme\Type.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.oneforth.cousininthecity.R
+
+val Poppins = FontFamily(
+    Font(R.font.poppins_thin, FontWeight.Thin),
+    Font(R.font.poppins_thinitalic, FontWeight.Thin, FontStyle.Italic),
+    Font(R.font.poppins_extralight, FontWeight.ExtraLight),
+    Font(R.font.poppins_extralightitalic, FontWeight.ExtraLight, FontStyle.Italic),
+    Font(R.font.poppins_light, FontWeight.Light),
+    Font(R.font.poppins_lightitalic, FontWeight.Light, FontStyle.Italic),
+    Font(R.font.poppins_regular, FontWeight.Normal),
+    Font(R.font.poppins_italic, FontWeight.Normal, FontStyle.Italic),
+    Font(R.font.poppins_medium, FontWeight.Medium),
+    Font(R.font.poppins_mediumitalic, FontWeight.Medium, FontStyle.Italic),
+    Font(R.font.poppins_semibold, FontWeight.SemiBold),
+    Font(R.font.poppins_semibolditalic, FontWeight.SemiBold, FontStyle.Italic),
+    Font(R.font.poppins_bold, FontWeight.Bold),
+    Font(R.font.poppins_bolditalic, FontWeight.Bold, FontStyle.Italic),
+    Font(R.font.poppins_extrabold, FontWeight.ExtraBold),
+    Font(R.font.poppins_extrabolditalic, FontWeight.ExtraBold, FontStyle.Italic),
+    Font(R.font.poppins_black, FontWeight.Black),
+    Font(R.font.poppins_blackitalic, FontWeight.Black, FontStyle.Italic)
+)
+
+private val defaultTypography = Typography()
+
+val Typography = Typography(
+    displayLarge = defaultTypography.displayLarge.copy(fontFamily = Poppins),
+    displayMedium = defaultTypography.displayMedium.copy(fontFamily = Poppins),
+    displaySmall = defaultTypography.displaySmall.copy(fontFamily = Poppins),
+    headlineLarge = defaultTypography.headlineLarge.copy(fontFamily = Poppins),
+    headlineMedium = defaultTypography.headlineMedium.copy(fontFamily = Poppins),
+    headlineSmall = defaultTypography.headlineSmall.copy(fontFamily = Poppins),
+    titleLarge = defaultTypography.titleLarge.copy(fontFamily = Poppins),
+    titleMedium = defaultTypography.titleMedium.copy(fontFamily = Poppins),
+    titleSmall = defaultTypography.titleSmall.copy(fontFamily = Poppins),
+    bodyLarge = defaultTypography.bodyLarge.copy(fontFamily = Poppins),
+    bodyMedium = defaultTypography.bodyMedium.copy(fontFamily = Poppins),
+    bodySmall = defaultTypography.bodySmall.copy(fontFamily = Poppins),
+    labelLarge = defaultTypography.labelLarge.copy(fontFamily = Poppins),
+    labelMedium = defaultTypography.labelMedium.copy(fontFamily = Poppins),
+    labelSmall = defaultTypography.labelSmall.copy(fontFamily = Poppins)
+)
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\viewmodels\ChatViewModel.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.oneforth.cousininthecity.domain.model.ChatMessage
+import com.oneforth.cousininthecity.domain.model.MessageRole
+import com.oneforth.cousininthecity.domain.usecase.GetChatHistoryUseCase
+import com.oneforth.cousininthecity.domain.usecase.SendMessageUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+import java.util.regex.Pattern
+
+// Represents the state of the Chat Screen
+data class ChatUiState(
+    val messages: List<ChatMessage> = emptyList(),
+    val isLoading: Boolean = false,
+    val isListening: Boolean = false,
+    val threadId: String? = null,
+    val isChatLoading: Boolean = false
+)
+
+// Represents one-off events sent via SharedFlow (Channel) to the UI
+sealed class UiEvent {
+    data class ShowSnackbar(val message: String) : UiEvent()
+    
+    // Jarvis Actions
+    data class JarvisAddCalendar(val title: String, val description: String, val date: String) : UiEvent()
+    data class JarvisOpenMap(val locationQuery: String) : UiEvent()
+    data class JarvisSaveNote(val content: String) : UiEvent()
+}
+
+@HiltViewModel
+class ChatViewModel @Inject constructor(
+    private val sendMessageUseCase: SendMessageUseCase,
+    private val getChatHistoryUseCase: GetChatHistoryUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(ChatUiState())
+    val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    // Channel for one-off events (like Snackbar or Jarvis intents)
+    private val _uiEvent = Channel<UiEvent>()
+    val uiEvent = _uiEvent.receiveAsFlow()
+
+    fun loadThread(threadId: String) {
+        _uiState.update { it.copy(threadId = threadId, isLoading = true) }
+        viewModelScope.launch {
+            try {
+                val history = getChatHistoryUseCase(threadId).getOrNull() ?: emptyList()
+                _uiState.update { it.copy(messages = history, isLoading = false) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false) }
+                _uiEvent.send(UiEvent.ShowSnackbar("Failed to load chat history. Swipe down to retry."))
+            }
+        }
+    }
+
+    fun toggleListening() {
+        val currentlyListening = _uiState.value.isListening
+        _uiState.update { it.copy(isListening = !currentlyListening) }
+    }
+
+    fun sendMessage(prompt: String) {
+        val currentThreadId = _uiState.value.threadId ?: return
+        
+        // Optimistically add user message to UI and set chat loading state for shimmer effect
+        val userMsg = ChatMessage(role = MessageRole.USER, content = prompt)
+        _uiState.update { it.copy(messages = it.messages + userMsg, isLoading = true, isChatLoading = true) }
+
+        viewModelScope.launch {
+            try {
+                val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
+                
+                // --- JARVIS INTERCEPTOR LOGIC ---
+                // We check if the AI appended a JSON intent block to its response
+                val (cleanText, intentJson) = extractJsonBlock(responseMsg.content)
+                
+                val finalMsg = responseMsg.copy(content = cleanText.trim())
+                _uiState.update { it.copy(messages = it.messages + finalMsg, isLoading = false, isChatLoading = false) }
+                
+                // If a JSON intent was found, trigger the silent Jarvis automation via SharedFlow
+                intentJson?.let { executeJarvisAutomation(it) }
+
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isLoading = false, isChatLoading = false) }
+                _uiEvent.send(UiEvent.ShowSnackbar("Network error: Could not reach Agent Orchestrator."))
+            }
+        }
+    }
+
+    private fun extractJsonBlock(text: String): Pair<String, String?> {
+        val pattern = Pattern.compile("```(?:json|JSON)?\\s*(.*?)\\s*```", Pattern.DOTALL)
+        val matcher = pattern.matcher(text)
+        
+        var cleanText = text
+        var foundIntentJson: String? = null
+        
+        // Iterate through all markdown blocks. If it's a Jarvis intent, hide it and parse it.
+        // If it's a backend function call log, leave it alone (or let it show in chat)
+        while (matcher.find()) {
+            val jsonContent = matcher.group(1)
+            if (jsonContent != null && jsonContent.contains("\"intent\"")) {
+                foundIntentJson = jsonContent
+                cleanText = cleanText.replace(matcher.group(0) ?: "", "")
+            }
+        }
+        
+        if (foundIntentJson != null) {
+            return Pair(cleanText, foundIntentJson)
+        }
+        
+        // Fallback: look for raw JSON string
+        if (cleanText.contains("\"intent\"")) {
+            val startIndex = cleanText.indexOf("{")
+            val endIndex = cleanText.lastIndexOf("}")
+            if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
+                val json = cleanText.substring(startIndex, endIndex + 1)
+                if (json.contains("\"intent\"")) {
+                    cleanText = cleanText.replace(json, "")
+                    return Pair(cleanText, json)
+                }
+            }
+        }
+
+        return Pair(text, null)
+    }
+
+    private fun executeJarvisAutomation(jsonString: String) {
+        viewModelScope.launch {
+            try {
+                val json = org.json.JSONObject(jsonString)
+                val intent = json.optString("intent", "").uppercase()
+                
+                when (intent) {
+                    "CALENDAR" -> {
+                        val title = json.optString("title", "Cousin Assistant Event")
+                        val description = json.optString("description", "Automated by Cousin")
+                        val date = json.optString("date", "")
+                        _uiEvent.send(UiEvent.JarvisAddCalendar(title, description, date))
+                    }
+                    "MAP", "MAPS" -> {
+                        val location = json.optString("location", json.optString("query", "Mumbai"))
+                        _uiEvent.send(UiEvent.JarvisOpenMap(location))
+                    }
+                    "KEEP", "NOTE" -> {
+                        val content = json.optString("content", json.optString("note", jsonString))
+                        _uiEvent.send(UiEvent.JarvisSaveNote(content))
+                    }
+                    else -> {
+                        if (intent.isNotBlank()) {
+                            _uiEvent.send(UiEvent.ShowSnackbar("Found unknown intent: $intent"))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                // Fallback for malformed JSON
+                if (jsonString.contains("\"intent\": \"CALENDAR\"")) {
+                    _uiEvent.send(UiEvent.JarvisAddCalendar("Cousin Assistant Event", "Automated", ""))
+                } else if (jsonString.contains("\"intent\": \"MAP\"")) {
+                    _uiEvent.send(UiEvent.JarvisOpenMap("Mumbai"))
+                } else if (jsonString.contains("\"intent\": \"KEEP\"")) {
+                    _uiEvent.send(UiEvent.JarvisSaveNote(jsonString))
+                }
+            }
+        }
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\ui\viewmodels\ThreadViewModel.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.ui.viewmodels
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.domain.usecase.CreateChatThreadUseCase
+import com.oneforth.cousininthecity.domain.usecase.GetChatThreadsUseCase
+import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import javax.inject.Inject
+
+data class ThreadUiState(
+    val threads: List<ChatThread> = emptyList(),
+    val isLoading: Boolean = false,
+    val error: String? = null
+)
+
+@HiltViewModel
+class ThreadViewModel @Inject constructor(
+    private val getChatThreadsUseCase: GetChatThreadsUseCase,
+    private val createChatThreadUseCase: CreateChatThreadUseCase
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(ThreadUiState())
+    val uiState: StateFlow<ThreadUiState> = _uiState.asStateFlow()
+
+    fun loadThreads() {
+        _uiState.update { it.copy(isLoading = true, error = null) }
+        viewModelScope.launch {
+            try {
+                val threads = getChatThreadsUseCase().getOrNull() ?: emptyList()
+                _uiState.update { it.copy(threads = threads, isLoading = false) }
+            } catch (e: Exception) {
+                _uiState.update { 
+                    it.copy(isLoading = false, error = "Failed to load threads.") 
+                }
+            }
+        }
+    }
+
+    fun createNewThread(title: String, onThreadCreated: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val newThread = createChatThreadUseCase(title).getOrThrow()
+                _uiState.update { it.copy(threads = listOf(newThread) + it.threads) }
+                onThreadCreated(newThread.id)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Failed to create thread.") }
+            }
+        }
+    }
+}
+
+====================================================================================================
+FILE: app\src\main\java\com\oneforth\cousininthecity\util\NativeIntentUtils.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity.util
+
+import android.Manifest
+import android.content.ContentValues
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.CalendarContract
+import android.util.Log
+import androidx.core.content.ContextCompat
+import java.util.TimeZone
+import androidx.core.net.toUri
+
+object NativeIntentUtils {
+
+    /**
+     * JARVIS MODE: Silently inserts an event into the user's primary calendar without opening any UI.
+     * Requires READ_CALENDAR and WRITE_CALENDAR permissions.
+     */
+    fun silentlyAddCalendarEvent(
+        context: Context,
+        title: String,
+        description: String,
+        startTimeMillis: Long,
+        endTimeMillis: Long
+    ): Boolean {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_CALENDAR) != PackageManager.PERMISSION_GRANTED) {
+            Log.e("Jarvis", "Missing WRITE_CALENDAR permission")
+            return false
+        }
+
+        try {
+            // 1. Find the primary calendar ID
+            var calendarId: Long = -1
+            val projection = arrayOf(CalendarContract.Calendars._ID)
+            val selection = "${CalendarContract.Calendars.IS_PRIMARY} = 1"
+            
+            context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI,
+                projection,
+                selection,
+                null,
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    calendarId = cursor.getLong(0)
+                }
+            }
+
+            if (calendarId == -1L) {
+                // Fallback to the first available calendar if no primary is marked
+                context.contentResolver.query(
+                    CalendarContract.Calendars.CONTENT_URI,
+                    projection,
+                    null,
+                    null,
+                    null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        calendarId = cursor.getLong(0)
+                    }
+                }
+            }
+
+            if (calendarId == -1L) return false
+
+            // 2. Insert the event silently
+            val values = ContentValues().apply {
+                put(CalendarContract.Events.DTSTART, startTimeMillis)
+                put(CalendarContract.Events.DTEND, endTimeMillis)
+                put(CalendarContract.Events.TITLE, title)
+                put(CalendarContract.Events.DESCRIPTION, description)
+                put(CalendarContract.Events.CALENDAR_ID, calendarId)
+                put(CalendarContract.Events.EVENT_TIMEZONE, TimeZone.getDefault().id)
+            }
+
+            val uri: Uri? = context.contentResolver.insert(CalendarContract.Events.CONTENT_URI, values)
+            return uri != null
+        } catch (e: Exception) {
+            Log.e("Jarvis", "Failed to insert calendar event silently", e)
+            return false
+        }
+    }
+
+    /**
+     * JARVIS MODE: Automatically launches Google Maps for navigation/viewing.
+     */
+    fun openGoogleMaps(context: Context, locationQuery: String) {
+        val uri = "geo:0,0?q=${Uri.encode(locationQuery)}".toUri()
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            setPackage("com.google.android.apps.maps")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback if Google Maps is not installed
+            val browserUri =
+                "https://www.google.com/maps/search/?api=1&query=${Uri.encode(locationQuery)}".toUri()
+            val browserIntent = Intent(Intent.ACTION_VIEW, browserUri).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(browserIntent)
+        }
+    }
+
+    /**
+     * JARVIS MODE: Automatically pops up Google Keep to save a note.
+     */
+    fun saveToGoogleKeep(context: Context, text: String) {
+        val intent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+            setPackage("com.google.android.keep")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        
+        try {
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // Fallback to standard share sheet if Keep is not installed
+            val chooser = Intent.createChooser(intent, "Save Note").apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            context.startActivity(chooser)
+        }
+    }
+}
+
+====================================================================================================
+FILE: app\src\test\java\com\oneforth\cousininthecity\ExampleUnitTest.kt
+====================================================================================================
+
+package com.oneforth.cousininthecity
+
+import org.junit.Test
+
+import org.junit.Assert.*
+
+/**
+ * Example local unit test, which will execute on the development machine (host).
+ *
+ * See [testing documentation](http://d.android.com/tools/testing).
+ */
+class ExampleUnitTest {
+    @Test
+    fun addition_isCorrect() {
+        assertEquals(4, 2 + 2)
+    }
+}

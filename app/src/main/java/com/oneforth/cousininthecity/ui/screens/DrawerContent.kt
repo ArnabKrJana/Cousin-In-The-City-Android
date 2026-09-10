@@ -1,5 +1,4 @@
 package com.oneforth.cousininthecity.ui.screens
-import androidx.compose.ui.tooling.preview.Preview
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,19 +8,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material3.*
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.oneforth.cousininthecity.domain.model.ChatThread
+import com.oneforth.cousininthecity.ui.components.ThreadItem
 import com.oneforth.cousininthecity.ui.viewmodels.ThreadUiState
 
 @Composable
@@ -99,10 +96,10 @@ fun DrawerContent(
             }
             
             // Bottom Profile Area
-            HorizontalDivider(Modifier, DividerDefaults.Thickness, DividerDefaults.color)
             Row(
-                modifier = Modifier
+                modifier = Modifier.visible(false)
                     .fillMaxWidth()
+                    .background(color = MaterialTheme.colorScheme.onPrimary)
                     .padding(16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -122,40 +119,6 @@ fun DrawerContent(
         }
     }
 }
-
-@Composable
-fun ThreadItem(thread: ChatThread, onClick: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(
-            Icons.Outlined.ChatBubbleOutline, 
-            contentDescription = null, 
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Spacer(modifier = Modifier.width(16.dp))
-        Text(
-            text = thread.title,
-            modifier = Modifier.weight(1f),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        Icon(
-            Icons.Default.PushPin, 
-            contentDescription = "Pin", 
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-
 
 @Preview(showBackground = true)
 @Composable

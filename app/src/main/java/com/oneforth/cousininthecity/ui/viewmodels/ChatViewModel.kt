@@ -22,7 +22,8 @@ data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val isLoading: Boolean = false,
     val isListening: Boolean = false,
-    val threadId: String? = null
+    val threadId: String? = null,
+    val isChatLoading: Boolean = false
 )
 
 // Represents one-off events sent via SharedFlow (Channel) to the UI
@@ -69,61 +70,74 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(prompt: String) {
         val currentThreadId = _uiState.value.threadId ?: return
         
-        // Optimistically add user message to UI
+        // Optimistically add user message to UI and set chat loading state for shimmer effect
         val userMsg = ChatMessage(role = MessageRole.USER, content = prompt)
-        _uiState.update { it.copy(messages = it.messages + userMsg, isLoading = true) }
+        _uiState.update { it.copy(messages = it.messages + userMsg, isLoading = true, isChatLoading = true) }
 
         viewModelScope.launch {
             try {
                 val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
                 
                 // --- JARVIS INTERCEPTOR LOGIC ---
-                // We check if the AI appended a JSON intent block to its response
-                val (cleanText, intentJson) = extractJsonBlock(responseMsg.content)
+                // Clean the text and execute any XML intents found
+                val cleanText = extractAndExecuteIntent(responseMsg.content)
                 
                 val finalMsg = responseMsg.copy(content = cleanText.trim())
-                _uiState.update { it.copy(messages = it.messages + finalMsg, isLoading = false) }
-                
-                // If a JSON intent was found, trigger the silent Jarvis automation via SharedFlow
-                intentJson?.let { executeJarvisAutomation(it) }
+                _uiState.update { it.copy(messages = it.messages + finalMsg, isLoading = false, isChatLoading = false) }
 
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
+                _uiState.update { it.copy(isLoading = false, isChatLoading = false) }
                 _uiEvent.send(UiEvent.ShowSnackbar("Network error: Could not reach Agent Orchestrator."))
             }
         }
     }
 
-    private fun extractJsonBlock(text: String): Pair<String, String?> {
-        val pattern = Pattern.compile("```json\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL)
-        val matcher = pattern.matcher(text)
+    private fun extractAndExecuteIntent(text: String): String {
+        var cleanText = text
         
-        if (matcher.find()) {
-            val json = matcher.group(1)
-            val cleanText = text.replace(matcher.group(0) ?: "", "")
-            return Pair(cleanText, json)
-        }
-        return Pair(text, null)
-    }
-
-    private fun executeJarvisAutomation(json: String) {
-        viewModelScope.launch {
-            try {
-                // In a real scenario, use Gson/Kotlinx Serialization to parse this
-                if (json.contains("\"intent\": \"CALENDAR\"")) {
-                    _uiEvent.send(UiEvent.JarvisAddCalendar(
-                        title = "Flight Booked", 
-                        description = "Automated by CousinInTheCity",
-                        date = "2026-10-12"
-                    ))
-                } else if (json.contains("\"intent\": \"MAP\"")) {
-                    _uiEvent.send(UiEvent.JarvisOpenMap("Andheri West, Mumbai"))
-                } else if (json.contains("\"intent\": \"KEEP\"")) {
-                    _uiEvent.send(UiEvent.JarvisSaveNote("Here are your neighborhood options..."))
-                }
-            } catch (e: Exception) {
-                _uiEvent.send(UiEvent.ShowSnackbar("Jarvis automation failed to parse JSON."))
+        // 1. Aggressively strip any stray JSON tool-calling blocks
+        val jsonPattern = Pattern.compile("```(?:json|JSON)?\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL)
+        val jsonMatcher = jsonPattern.matcher(cleanText)
+        while (jsonMatcher.find()) {
+            val jsonContent = jsonMatcher.group(1) ?: ""
+            if (jsonContent.contains("\"name\"") || jsonContent.contains("\"parameters\"")) {
+                cleanText = cleanText.replace(jsonMatcher.group(0) ?: "", "")
             }
         }
+        
+        // 2. Find and execute XML INTENT tags
+        val xmlPattern = Pattern.compile("<INTENT\\s+(.*?)\\s*/>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
+        val xmlMatcher = xmlPattern.matcher(cleanText)
+        
+        while (xmlMatcher.find()) {
+            val attributesStr = xmlMatcher.group(1) ?: ""
+            val fullTag = xmlMatcher.group(0) ?: ""
+            
+            cleanText = cleanText.replace(fullTag, "")
+            
+            fun extractAttr(name: String): String {
+                val attrPattern = Pattern.compile("$name=\"([^\"]*)\"", Pattern.CASE_INSENSITIVE)
+                val attrMatcher = attrPattern.matcher(attributesStr)
+                return if (attrMatcher.find()) attrMatcher.group(1) ?: "" else ""
+            }
+            
+            val type = extractAttr("type").uppercase()
+            val title = extractAttr("title").ifEmpty { "Cousin Assistant Event" }
+            val date = extractAttr("date")
+            val description = extractAttr("description").ifEmpty { "Automated by Cousin" }
+            val location = extractAttr("location").ifEmpty { extractAttr("query") }.ifEmpty { "Mumbai" }
+            val content = extractAttr("content").ifEmpty { extractAttr("note") }.ifEmpty { "Saved note" }
+            
+            viewModelScope.launch {
+                when (type) {
+                    "CALENDAR" -> _uiEvent.send(UiEvent.JarvisAddCalendar(title, description, date))
+                    "MAP", "MAPS" -> _uiEvent.send(UiEvent.JarvisOpenMap(location))
+                    "KEEP", "NOTE" -> _uiEvent.send(UiEvent.JarvisSaveNote(content))
+                    else -> if (type.isNotBlank()) _uiEvent.send(UiEvent.ShowSnackbar("Found unknown intent: $type"))
+                }
+            }
+        }
+        
+        return cleanText
     }
 }
