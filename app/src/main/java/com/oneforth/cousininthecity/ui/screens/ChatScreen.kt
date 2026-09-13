@@ -1,8 +1,5 @@
 package com.oneforth.cousininthecity.ui.screens
 
-import android.media.AudioManager
-import android.media.ToneGenerator
-import android.widget.Toast
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
@@ -23,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -52,7 +48,6 @@ fun ChatScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Collect one-off UI Events (Jarvis Intents & Snackbars)
     LaunchedEffect(Unit) {
         uiEventFlow.collect { event ->
             when (event) {
@@ -61,16 +56,11 @@ fun ChatScreen(
                 }
 
                 is UiEvent.JarvisAddCalendar -> {
-                    val success = NativeIntentUtils.silentlyAddCalendarEvent(
-                        context, event.title, event.description,
-                        System.currentTimeMillis() + 86400000, // Dummy: +1 day
-                        System.currentTimeMillis() + 90000000
-                    )
-                    if (!success) Toast.makeText(
+                    NativeIntentUtils.addCalendarEvent(
                         context,
-                        "Requires Calendar Permission!",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                        event.title,
+                        event.date
+                    )
                 }
 
                 is UiEvent.JarvisOpenMap -> {
@@ -78,7 +68,7 @@ fun ChatScreen(
                 }
 
                 is UiEvent.JarvisSaveNote -> {
-                    NativeIntentUtils.saveToGoogleKeep(context, event.content)
+                    NativeIntentUtils.saveNote(context, event.title, event.note)
                 }
             }
         }
@@ -86,7 +76,7 @@ fun ChatScreen(
 
     val isDark = isSystemInDarkTheme()
     val gradientColors = if (isDark) {
-        listOf(Color(0xFF0F0F11), Color(0xFF14244B)) // Gemini-like dark gradient
+        listOf(Color(0xFF0F0F11), Color(0xFF14244B))
     } else {
         listOf(Color.White, Color(0xFFE3F2FD))
     }
@@ -174,19 +164,6 @@ fun ChatScreen(
     }
 }
 
-// Helper object to encapsulate ToneGenerator and prevent NoClassDefFoundError during
-// Compose Preview inspection, as ToneGenerator is unavailable in Android Studio Layoutlib.
-private object ToneFeedbackHelper {
-    fun playTone(isListening: Boolean) {
-        runCatching {
-            val toneGen = ToneGenerator(AudioManager.STREAM_SYSTEM, 100)
-            val toneType =
-                if (isListening) ToneGenerator.TONE_PROP_ACK else ToneGenerator.TONE_PROP_BEEP
-            toneGen.startTone(toneType)
-        }
-    }
-}
-
 @Composable
 fun ChatInputField(
     onSendMessage: (String) -> Unit,
@@ -195,7 +172,6 @@ fun ChatInputField(
     onToggleListening: () -> Unit
 ) {
     var text by remember { mutableStateOf("") }
-    val isPreview = LocalInspectionMode.current
 
     Surface(
         modifier = Modifier
@@ -246,9 +222,6 @@ fun ChatInputField(
                 }
             } else {
                 IconButton(onClick = {
-                    if (!isPreview) {
-                        ToneFeedbackHelper.playTone(isListening)
-                    }
                     onToggleListening()
                 }) {
                     Icon(
@@ -271,11 +244,20 @@ fun ChatScreenPreview() {
                 messages = listOf(
                     ChatMessage(
                         role = MessageRole.USER,
-                        content = "Hi, I need a flight to Mumbai."
+                        content = "Hi, I need recommendations for visiting Mumbai."
                     ),
                     ChatMessage(
                         role = MessageRole.ASSISTANT,
-                        content = "Sure, I can help with that. When are you planning to travel?"
+                        content = """
+                            Sure! Here are some top recommendations for **Mumbai**:
+
+                            * **Marine Drive** - Great for evening walks
+                            * **Gateway of India** - Historic landmark
+
+                            ```
+                            Recommended time: 2-3 Days
+                            ```
+                        """.trimIndent()
                     )
                 ),
                 isLoading = false

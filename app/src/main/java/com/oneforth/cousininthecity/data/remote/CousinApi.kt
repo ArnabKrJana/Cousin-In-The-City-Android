@@ -1,8 +1,8 @@
 package com.oneforth.cousininthecity.data.remote
 
+import com.oneforth.cousininthecity.data.remote.dto.AgentResponse
 import com.oneforth.cousininthecity.data.remote.dto.AppUserDto
 import com.oneforth.cousininthecity.data.remote.dto.ChatInputDto
-import com.oneforth.cousininthecity.data.remote.dto.ChatOutputDto
 import com.oneforth.cousininthecity.data.remote.dto.ChatThreadDto
 import com.oneforth.cousininthecity.data.remote.dto.MessageDto
 import retrofit2.http.Body
@@ -37,5 +37,5 @@ interface CousinApi {
     @POST("/api/chat")
     suspend fun chat(
         @Body input: ChatInputDto
-    ): ChatOutputDto
+    ): AgentResponse
 }

@@ -42,8 +42,12 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
                 .background(backgroundColor)
                 .padding(16.dp)
         ) {
-            SelectionContainer {
-                Text(text = message.content, color = textColor, fontSize = 16.sp)
+            if (isUser) {
+                SelectionContainer {
+                    Text(text = message.content, color = textColor, fontSize = 16.sp)
+                }
+            } else {
+                MarkdownText(markdown = message.content, color = textColor)
             }
         }
     }
@@ -64,7 +68,7 @@ fun UserMessageBubblePreview() {
 fun AssistantMessageBubblePreview() {
     MaterialTheme {
         MessageBubble(
-            message = ChatMessage(role = MessageRole.ASSISTANT, content = "Hello! How can I help you today?")
+            message = ChatMessage(role = MessageRole.ASSISTANT, content = "Hello! **How can I help you** today?")
         )
     }
 }

@@ -17,7 +17,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 import java.util.regex.Pattern
 
-// Represents the state of the Chat Screen
 data class ChatUiState(
     val messages: List<ChatMessage> = emptyList(),
     val isLoading: Boolean = false,
@@ -26,14 +25,11 @@ data class ChatUiState(
     val isChatLoading: Boolean = false
 )
 
-// Represents one-off events sent via SharedFlow (Channel) to the UI
 sealed class UiEvent {
     data class ShowSnackbar(val message: String) : UiEvent()
-    
-    // Jarvis Actions
-    data class JarvisAddCalendar(val title: String, val description: String, val date: String) : UiEvent()
+    data class JarvisAddCalendar(val title: String, val date: String) : UiEvent()
     data class JarvisOpenMap(val locationQuery: String) : UiEvent()
-    data class JarvisSaveNote(val content: String) : UiEvent()
+    data class JarvisSaveNote(val title: String, val note: String) : UiEvent()
 }
 
 @HiltViewModel
@@ -45,7 +41,6 @@ class ChatViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ChatUiState())
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
 
-    // Channel for one-off events (like Snackbar or Jarvis intents)
     private val _uiEvent = Channel<UiEvent>()
     val uiEvent = _uiEvent.receiveAsFlow()
 
@@ -70,7 +65,6 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(prompt: String) {
         val currentThreadId = _uiState.value.threadId ?: return
         
-        // Optimistically add user message to UI and set chat loading state for shimmer effect
         val userMsg = ChatMessage(role = MessageRole.USER, content = prompt)
         _uiState.update { it.copy(messages = it.messages + userMsg, isLoading = true, isChatLoading = true) }
 
@@ -78,11 +72,13 @@ class ChatViewModel @Inject constructor(
             try {
                 val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
                 
-                // --- JARVIS INTERCEPTOR LOGIC ---
-                // Clean the text and execute any XML intents found
-                val cleanText = extractAndExecuteIntent(responseMsg.content)
+                // Process structured intent response
+                processStructuredIntent(responseMsg)
                 
+                // Fallback: clean any stray legacy tags in content string
+                val cleanText = extractAndExecuteFallbackIntent(responseMsg.content)
                 val finalMsg = responseMsg.copy(content = cleanText.trim())
+                
                 _uiState.update { it.copy(messages = it.messages + finalMsg, isLoading = false, isChatLoading = false) }
 
             } catch (e: Exception) {
@@ -92,10 +88,35 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun extractAndExecuteIntent(text: String): String {
+    private fun processStructuredIntent(message: ChatMessage) {
+        val intentType = message.intentType?.uppercase() ?: return
+        val actionData = message.actionData ?: emptyMap()
+
+        viewModelScope.launch {
+            when (intentType) {
+                "MAP" -> {
+                    val location = actionData["location"] ?: actionData["query"] ?: ""
+                    if (location.isNotBlank()) {
+                        _uiEvent.send(UiEvent.JarvisOpenMap(location))
+                    }
+                }
+                "CALENDAR" -> {
+                    val title = actionData["title"] ?: "New Event"
+                    val date = actionData["date"] ?: ""
+                    _uiEvent.send(UiEvent.JarvisAddCalendar(title, date))
+                }
+                "KEEP" -> {
+                    val title = actionData["title"] ?: ""
+                    val note = actionData["note"] ?: actionData["content"] ?: ""
+                    _uiEvent.send(UiEvent.JarvisSaveNote(title, note))
+                }
+            }
+        }
+    }
+
+    private fun extractAndExecuteFallbackIntent(text: String): String {
         var cleanText = text
         
-        // 1. Aggressively strip any stray JSON tool-calling blocks
         val jsonPattern = Pattern.compile("```(?:json|JSON)?\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL)
         val jsonMatcher = jsonPattern.matcher(cleanText)
         while (jsonMatcher.find()) {
@@ -105,7 +126,6 @@ class ChatViewModel @Inject constructor(
             }
         }
         
-        // 2. Find and execute XML INTENT tags
         val xmlPattern = Pattern.compile("<INTENT\\s+(.*?)\\s*/>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
         val xmlMatcher = xmlPattern.matcher(cleanText)
         
@@ -124,15 +144,14 @@ class ChatViewModel @Inject constructor(
             val type = extractAttr("type").uppercase()
             val title = extractAttr("title").ifEmpty { "Cousin Assistant Event" }
             val date = extractAttr("date")
-            val description = extractAttr("description").ifEmpty { "Automated by Cousin" }
             val location = extractAttr("location").ifEmpty { extractAttr("query") }.ifEmpty { "Mumbai" }
-            val content = extractAttr("content").ifEmpty { extractAttr("note") }.ifEmpty { "Saved note" }
+            val note = extractAttr("content").ifEmpty { extractAttr("note") }.ifEmpty { "Saved note" }
             
             viewModelScope.launch {
                 when (type) {
-                    "CALENDAR" -> _uiEvent.send(UiEvent.JarvisAddCalendar(title, description, date))
+                    "CALENDAR" -> _uiEvent.send(UiEvent.JarvisAddCalendar(title, date))
                     "MAP", "MAPS" -> _uiEvent.send(UiEvent.JarvisOpenMap(location))
-                    "KEEP", "NOTE" -> _uiEvent.send(UiEvent.JarvisSaveNote(content))
+                    "KEEP", "NOTE" -> _uiEvent.send(UiEvent.JarvisSaveNote(title, note))
                     else -> if (type.isNotBlank()) _uiEvent.send(UiEvent.ShowSnackbar("Found unknown intent: $type"))
                 }
             }
