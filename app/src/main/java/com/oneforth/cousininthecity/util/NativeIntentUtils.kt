@@ -5,6 +5,10 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.CalendarContract
 import android.util.Log
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 object NativeIntentUtils {
 
@@ -35,15 +39,28 @@ object NativeIntentUtils {
 
     /**
      * Launch Calendar app to create an event using ACTION_INSERT with CalendarContract.Events.CONTENT_URI.
+     * Parses separate date and time strings into Epoch Milliseconds for EXTRA_EVENT_BEGIN_TIME and EXTRA_EVENT_END_TIME.
      */
-    fun addCalendarEvent(context: Context, title: String?, date: String?) {
+    fun addCalendarEvent(context: Context, title: String?, dateStr: String?, timeStr: String?) {
         val intent = Intent(Intent.ACTION_INSERT).apply {
             data = CalendarContract.Events.CONTENT_URI
             putExtra(CalendarContract.Events.TITLE, title ?: "New Event")
-            if (!date.isNullOrBlank()) {
-                putExtra(CalendarContract.Events.DESCRIPTION, "Date / Details: $date")
-            }
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
+
+            if (!dateStr.isNullOrBlank() && !timeStr.isNullOrBlank()) {
+                try {
+                    val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd h:mm a", Locale.ENGLISH)
+                    val localDateTime = LocalDateTime.parse("$dateStr $timeStr", formatter)
+                    val startMillis = localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+                    putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
+                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, startMillis + (1000 * 60 * 60)) // +1 hour
+                } catch (e: Exception) {
+                    Log.e("NativeIntentUtils", "Failed to parse calendar date/time: $dateStr $timeStr", e)
+                }
+            } else if (!dateStr.isNullOrBlank()) {
+                putExtra(CalendarContract.Events.DESCRIPTION, "Date: $dateStr")
+            }
         }
         
         try {
@@ -55,24 +72,14 @@ object NativeIntentUtils {
 
     /**
      * Launch Google Keep or System Share Sheet using ACTION_SEND with text/plain.
+     * Sets Intent.EXTRA_TITLE to title and Intent.EXTRA_TEXT to note body.
      */
     fun saveNote(context: Context, title: String?, note: String?) {
-        val textToShare = buildString {
-            if (!title.isNullOrBlank()) {
-                append(title)
-                if (!note.isNullOrBlank()) {
-                    append("\n\n")
-                }
-            }
-            if (!note.isNullOrBlank()) {
-                append(note)
-            }
-        }
-
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
+            putExtra(Intent.EXTRA_TITLE, title)
             putExtra(Intent.EXTRA_SUBJECT, title ?: "Note")
-            putExtra(Intent.EXTRA_TEXT, textToShare)
+            putExtra(Intent.EXTRA_TEXT, note)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
 

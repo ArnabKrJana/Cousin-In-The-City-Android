@@ -27,7 +27,7 @@ data class ChatUiState(
 
 sealed class UiEvent {
     data class ShowSnackbar(val message: String) : UiEvent()
-    data class JarvisAddCalendar(val title: String, val date: String) : UiEvent()
+    data class JarvisAddCalendar(val title: String, val date: String, val time: String) : UiEvent()
     data class JarvisOpenMap(val locationQuery: String) : UiEvent()
     data class JarvisSaveNote(val title: String, val note: String) : UiEvent()
 }
@@ -103,7 +103,8 @@ class ChatViewModel @Inject constructor(
                 "CALENDAR" -> {
                     val title = actionData["title"] ?: "New Event"
                     val date = actionData["date"] ?: ""
-                    _uiEvent.send(UiEvent.JarvisAddCalendar(title, date))
+                    val time = actionData["time"] ?: ""
+                    _uiEvent.send(UiEvent.JarvisAddCalendar(title, date, time))
                 }
                 "KEEP" -> {
                     val title = actionData["title"] ?: ""
@@ -144,12 +145,13 @@ class ChatViewModel @Inject constructor(
             val type = extractAttr("type").uppercase()
             val title = extractAttr("title").ifEmpty { "Cousin Assistant Event" }
             val date = extractAttr("date")
+            val time = extractAttr("time")
             val location = extractAttr("location").ifEmpty { extractAttr("query") }.ifEmpty { "Mumbai" }
             val note = extractAttr("content").ifEmpty { extractAttr("note") }.ifEmpty { "Saved note" }
             
             viewModelScope.launch {
                 when (type) {
-                    "CALENDAR" -> _uiEvent.send(UiEvent.JarvisAddCalendar(title, date))
+                    "CALENDAR" -> _uiEvent.send(UiEvent.JarvisAddCalendar(title, date, time))
                     "MAP", "MAPS" -> _uiEvent.send(UiEvent.JarvisOpenMap(location))
                     "KEEP", "NOTE" -> _uiEvent.send(UiEvent.JarvisSaveNote(title, note))
                     else -> if (type.isNotBlank()) _uiEvent.send(UiEvent.ShowSnackbar("Found unknown intent: $type"))

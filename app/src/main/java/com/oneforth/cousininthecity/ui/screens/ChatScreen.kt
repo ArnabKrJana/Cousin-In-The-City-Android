@@ -7,6 +7,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
@@ -35,7 +36,7 @@ import com.oneforth.cousininthecity.util.NativeIntentUtils
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ChatScreen(
     modifier: Modifier = Modifier,
@@ -47,6 +48,15 @@ fun ChatScreen(
 ) {
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
+    val listState = rememberLazyListState()
+
+    val isImeVisible = WindowInsets.isImeVisible
+    LaunchedEffect(uiState.messages.size, uiState.isChatLoading, isImeVisible) {
+        val totalItems = uiState.messages.size + (if (uiState.isChatLoading) 1 else 0)
+        if (totalItems > 0) {
+            listState.animateScrollToItem(totalItems - 1)
+        }
+    }
 
     LaunchedEffect(Unit) {
         uiEventFlow.collect { event ->
@@ -59,7 +69,8 @@ fun ChatScreen(
                     NativeIntentUtils.addCalendarEvent(
                         context,
                         event.title,
-                        event.date
+                        event.date,
+                        event.time
                     )
                 }
 
@@ -144,6 +155,7 @@ fun ChatScreen(
                         EmptyChatState()
                     } else {
                         LazyColumn(
+                            state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
                             verticalArrangement = Arrangement.spacedBy(16.dp)

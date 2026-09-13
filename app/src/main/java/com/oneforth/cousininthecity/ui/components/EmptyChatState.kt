@@ -36,7 +36,7 @@ fun EmptyChatState(modifier: Modifier = Modifier) {
                 .background(
                     brush = Brush.radialGradient(
                         listOf(
-                            Color(0xFFFFB9B9),
+                            Color(0xFFED0000),
                             Color(0xFFDB4437),
                             Color(0xFFF4B400)
                         )
