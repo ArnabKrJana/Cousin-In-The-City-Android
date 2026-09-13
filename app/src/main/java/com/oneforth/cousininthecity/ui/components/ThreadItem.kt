@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -25,13 +27,14 @@ import com.oneforth.cousininthecity.domain.model.ChatThread
 fun ThreadItem(
     thread: ChatThread,
     onClick: () -> Unit,
+    onTogglePin: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(start = 24.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
@@ -48,22 +51,14 @@ fun ThreadItem(
             overflow = TextOverflow.Ellipsis,
             color = MaterialTheme.colorScheme.onSurface
         )
-        Icon(
-            Icons.Default.PushPin,
-            contentDescription = "Pin",
-            modifier = Modifier.size(16.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        IconButton(onClick = onTogglePin) {
+            Icon(
+                imageVector = if (thread.isPinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                contentDescription = if (thread.isPinned) "Unpin" else "Pin",
+                modifier = Modifier.size(20.dp),
+                tint = if (thread.isPinned) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            )
+        }
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun ThreadItemPreview() {
-    MaterialTheme {
-        ThreadItem(
-            thread = ChatThread(id = "1", title = "Mumbai Travel Guide", deviceId = "test"),
-            onClick = {}
-        )
-    }
-}

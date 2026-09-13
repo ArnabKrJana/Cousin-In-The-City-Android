@@ -7,6 +7,7 @@ import com.oneforth.cousininthecity.domain.model.MessageRole
 import com.oneforth.cousininthecity.domain.usecase.GetChatHistoryUseCase
 import com.oneforth.cousininthecity.domain.usecase.SendMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,15 +45,26 @@ class ChatViewModel @Inject constructor(
     private val _uiEvent = Channel<UiEvent>()
     val uiEvent = _uiEvent.receiveAsFlow()
 
+    private var historyJob: Job? = null
+
     fun loadThread(threadId: String) {
         _uiState.update { it.copy(threadId = threadId, isLoading = true) }
+        
+        // Cancel previous collection if switching threads
+        historyJob?.cancel()
+        
+        historyJob = viewModelScope.launch {
+            getChatHistoryUseCase(threadId).collect { history ->
+                _uiState.update { it.copy(messages = history, isLoading = false) }
+            }
+        }
+        
+        // Silently sync from backend
         viewModelScope.launch {
             try {
-                val history = getChatHistoryUseCase(threadId).getOrNull() ?: emptyList()
-                _uiState.update { it.copy(messages = history, isLoading = false) }
+                getChatHistoryUseCase.refresh(threadId)
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false) }
-                _uiEvent.send(UiEvent.ShowSnackbar("Failed to load chat history. Swipe down to retry."))
+                _uiEvent.send(UiEvent.ShowSnackbar("Failed to sync chat history. Swipe down to retry."))
             }
         }
     }
@@ -65,25 +77,21 @@ class ChatViewModel @Inject constructor(
     fun sendMessage(prompt: String) {
         val currentThreadId = _uiState.value.threadId ?: return
         
-        val userMsg = ChatMessage(role = MessageRole.USER, content = prompt)
-        _uiState.update { it.copy(messages = it.messages + userMsg, isLoading = true, isChatLoading = true) }
+        _uiState.update { it.copy(isChatLoading = true) }
 
         viewModelScope.launch {
             try {
+                // This triggers Option A: local save, API call, and failure cleanup.
                 val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
                 
-                // Process structured intent response
+                // Intents and Fallbacks are handled via the newly returned message
                 processStructuredIntent(responseMsg)
+                extractAndExecuteFallbackIntent(responseMsg.content)
                 
-                // Fallback: clean any stray legacy tags in content string
-                val cleanText = extractAndExecuteFallbackIntent(responseMsg.content)
-                val finalMsg = responseMsg.copy(content = cleanText.trim())
-                
-                _uiState.update { it.copy(messages = it.messages + finalMsg, isLoading = false, isChatLoading = false) }
-
+                _uiState.update { it.copy(isChatLoading = false) }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, isChatLoading = false) }
-                _uiEvent.send(UiEvent.ShowSnackbar("Network error: Could not reach Agent Orchestrator."))
+                _uiState.update { it.copy(isChatLoading = false) }
+                _uiEvent.send(UiEvent.ShowSnackbar("Network error: Could not reach Agent Orchestrator. Message unsent."))
             }
         }
     }
@@ -115,26 +123,13 @@ class ChatViewModel @Inject constructor(
         }
     }
 
-    private fun extractAndExecuteFallbackIntent(text: String): String {
-        var cleanText = text
-        
-        val jsonPattern = Pattern.compile("```(?:json|JSON)?\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL)
-        val jsonMatcher = jsonPattern.matcher(cleanText)
-        while (jsonMatcher.find()) {
-            val jsonContent = jsonMatcher.group(1) ?: ""
-            if (jsonContent.contains("\"name\"") || jsonContent.contains("\"parameters\"")) {
-                cleanText = cleanText.replace(jsonMatcher.group(0) ?: "", "")
-            }
-        }
-        
+    private fun extractAndExecuteFallbackIntent(text: String) {
+        // Fallback processing for XML Intents that escaped structured JSON parsing
         val xmlPattern = Pattern.compile("<INTENT\\s+(.*?)\\s*/>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
-        val xmlMatcher = xmlPattern.matcher(cleanText)
+        val xmlMatcher = xmlPattern.matcher(text)
         
         while (xmlMatcher.find()) {
             val attributesStr = xmlMatcher.group(1) ?: ""
-            val fullTag = xmlMatcher.group(0) ?: ""
-            
-            cleanText = cleanText.replace(fullTag, "")
             
             fun extractAttr(name: String): String {
                 val attrPattern = Pattern.compile("$name=\"([^\"]*)\"", Pattern.CASE_INSENSITIVE)
@@ -158,7 +153,6 @@ class ChatViewModel @Inject constructor(
                 }
             }
         }
-        
-        return cleanText
     }
 }
+

@@ -28,15 +28,25 @@ class ThreadViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(ThreadUiState())
     val uiState: StateFlow<ThreadUiState> = _uiState.asStateFlow()
 
+    init {
+        // Collect offline-first Flow
+        viewModelScope.launch {
+            getChatThreadsUseCase().collect { threadList ->
+                _uiState.update { it.copy(threads = threadList) }
+            }
+        }
+    }
+
     fun loadThreads() {
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             try {
-                val threads = getChatThreadsUseCase().getOrNull() ?: emptyList()
-                _uiState.update { it.copy(threads = threads, isLoading = false) }
+                // Silently refresh in background
+                getChatThreadsUseCase.refresh()
+                _uiState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {
                 _uiState.update { 
-                    it.copy(isLoading = false, error = "Failed to load threads.") 
+                    it.copy(isLoading = false, error = "Failed to sync threads from server.") 
                 }
             }
         }
@@ -46,11 +56,17 @@ class ThreadViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val newThread = createChatThreadUseCase(title).getOrThrow()
-                _uiState.update { it.copy(threads = listOf(newThread) + it.threads) }
                 onThreadCreated(newThread.id)
             } catch (e: Exception) {
                 _uiState.update { it.copy(error = "Failed to create thread.") }
             }
         }
     }
+
+    fun togglePin(threadId: String, currentPinStatus: Boolean) {
+        viewModelScope.launch {
+            getChatThreadsUseCase.togglePin(threadId, !currentPinStatus)
+        }
+    }
 }
+

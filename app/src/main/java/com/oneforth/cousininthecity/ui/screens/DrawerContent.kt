@@ -14,10 +14,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.oneforth.cousininthecity.domain.model.ChatThread
 import com.oneforth.cousininthecity.ui.components.ThreadItem
 import com.oneforth.cousininthecity.ui.viewmodels.ThreadUiState
 
@@ -26,6 +24,7 @@ fun DrawerContent(
     threadUiState: ThreadUiState,
     onNewChat: () -> Unit,
     onThreadSelected: (String) -> Unit,
+    onTogglePin: (String, Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     ModalDrawerSheet(
@@ -64,91 +63,60 @@ fun DrawerContent(
 
             Spacer(modifier = Modifier.height(24.dp))
             
-            Text(
-                "Recents", 
-                modifier = Modifier.padding(horizontal = 24.dp), 
-                fontSize = 14.sp, 
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            
-            Spacer(modifier = Modifier.height(8.dp))
-
             // Thread List
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                if (threadUiState.isLoading) {
+                if (threadUiState.isLoading && threadUiState.threads.isEmpty()) {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 } else {
                     LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(threadUiState.threads) { thread ->
-                            ThreadItem(
-                                thread = thread,
-                                onClick = { onThreadSelected(thread.id) }
-                            )
+                        val pinned = threadUiState.threads.filter { it.isPinned }
+                        val recents = threadUiState.threads.filter { !it.isPinned }
+
+                        if (pinned.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "Pinned",
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            items(pinned) { thread ->
+                                ThreadItem(
+                                    thread = thread,
+                                    onClick = { onThreadSelected(thread.id) },
+                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) }
+                                )
+                            }
+                        }
+
+                        if (recents.isNotEmpty()) {
+                            item {
+                                Text(
+                                    "Recents",
+                                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                                    fontSize = 14.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            items(recents) { thread ->
+                                ThreadItem(
+                                    thread = thread,
+                                    onClick = { onThreadSelected(thread.id) },
+                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) }
+                                )
+                            }
                         }
                     }
-                }
-            }
-            
-            // Bottom Profile Area
-            Row(
-                modifier = Modifier.visible(false)
-                    .fillMaxWidth()
-                    .background(color = MaterialTheme.colorScheme.onPrimary)
-                    .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(MaterialTheme.colorScheme.primary, shape = MaterialTheme.shapes.extraLarge),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("A", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.width(16.dp))
-                Column {
-                    Text("Arnab Kumar Jana", fontWeight = FontWeight.Medium)
                 }
             }
         }
     }
 }
 
-@Preview(showBackground = true)
-@Composable
-fun DrawerContentPreview() {
-    MaterialTheme {
-        DrawerContent(
-            threadUiState = ThreadUiState(
-                threads = listOf(
-                    ChatThread( "1", title = "Mumbai Relocation", deviceId = "test"),
-                    ChatThread( "2", title = "Bangalore Budgeting", deviceId = "test")
-                ),
-                isLoading = false
-            ),
-            onNewChat = {},
-            onThreadSelected = {}
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun DrawerContentLoadingPreview() {
-    MaterialTheme {
-        DrawerContent(
-            threadUiState = ThreadUiState(
-                threads = emptyList(),
-                isLoading = true
-            ),
-            onNewChat = {},
-            onThreadSelected = {}
-        )
-    }
-}

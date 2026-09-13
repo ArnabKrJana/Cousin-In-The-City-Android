@@ -5,9 +5,10 @@ import com.oneforth.cousininthecity.domain.repository.ChatRepository
 import javax.inject.Inject
 
 class SendMessageUseCase @Inject constructor(
-    private val chatRepository: ChatRepository
+    private val repository: ChatRepository
 ) {
     suspend operator fun invoke(prompt: String, conversationId: String): Result<ChatMessage> {
-        return chatRepository.sendMessage(prompt, conversationId)
+        return repository.sendMessage(prompt, conversationId)
     }
 }
+

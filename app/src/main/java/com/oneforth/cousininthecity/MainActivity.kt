@@ -5,6 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
@@ -14,6 +15,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -72,7 +74,11 @@ fun CousinApp() {
                 onThreadSelected = { threadId ->
                     chatViewModel.loadThread(threadId)
                     scope.launch { drawerState.close() }
-                }
+                },
+                onTogglePin = { threadId, isPinned ->
+                    threadViewModel.togglePin(threadId, isPinned)
+                },
+                modifier = Modifier.width(320.dp)
             )
         }
     ) {
