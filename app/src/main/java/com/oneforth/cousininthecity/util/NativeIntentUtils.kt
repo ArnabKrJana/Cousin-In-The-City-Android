@@ -43,6 +43,7 @@ object NativeIntentUtils {
      */
     fun addCalendarEvent(context: Context, title: String?, dateStr: String?, timeStr: String?) {
         val intent = Intent(Intent.ACTION_INSERT).apply {
+            // Reverted to standard data URI (removed strict MIME type which caused the OS block)
             data = CalendarContract.Events.CONTENT_URI
             putExtra(CalendarContract.Events.TITLE, title ?: "New Event")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -54,15 +55,17 @@ object NativeIntentUtils {
                     val startMillis = localDateTime.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
                     putExtra(CalendarContract.EXTRA_EVENT_BEGIN_TIME, startMillis)
-                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, startMillis + (1000 * 60 * 60)) // +1 hour
+                    putExtra(CalendarContract.EXTRA_EVENT_END_TIME, startMillis + (1000 * 60 * 60))
                 } catch (e: Exception) {
-                    Log.e("NativeIntentUtils", "Failed to parse calendar date/time: $dateStr $timeStr", e)
+                    Log.e("NativeIntentUtils", "Failed to parse calendar date/time", e)
+                    // Fallback to text description if parse fails
+                    putExtra(CalendarContract.Events.DESCRIPTION, "Date: $dateStr\nTime: $timeStr")
                 }
             } else if (!dateStr.isNullOrBlank()) {
                 putExtra(CalendarContract.Events.DESCRIPTION, "Date: $dateStr")
             }
         }
-        
+
         try {
             context.startActivity(intent)
         } catch (e: Exception) {
