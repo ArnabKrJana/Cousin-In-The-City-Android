@@ -15,5 +15,6 @@ interface ChatRepository {
     suspend fun sendMessage(prompt: String, conversationId: String): Result<ChatMessage>
     
     suspend fun togglePinStatus(threadId: String, isPinned: Boolean)
+    suspend fun deleteThread(threadId: String): Result<Unit>
 }
 

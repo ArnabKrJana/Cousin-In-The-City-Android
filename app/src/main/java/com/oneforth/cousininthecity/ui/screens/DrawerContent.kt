@@ -25,6 +25,7 @@ fun DrawerContent(
     onNewChat: () -> Unit,
     onThreadSelected: (String) -> Unit,
     onTogglePin: (String, Boolean) -> Unit,
+    onDeleteThread: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     ModalDrawerSheet(
@@ -91,7 +92,8 @@ fun DrawerContent(
                                 ThreadItem(
                                     thread = thread,
                                     onClick = { onThreadSelected(thread.id) },
-                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) }
+                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) },
+                                    onDelete = { onDeleteThread(thread.id) }
                                 )
                             }
                         }
@@ -109,7 +111,8 @@ fun DrawerContent(
                                 ThreadItem(
                                     thread = thread,
                                     onClick = { onThreadSelected(thread.id) },
-                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) }
+                                    onTogglePin = { onTogglePin(thread.id, thread.isPinned) },
+                                    onDelete = { onDeleteThread(thread.id) }
                                 )
                             }
                         }

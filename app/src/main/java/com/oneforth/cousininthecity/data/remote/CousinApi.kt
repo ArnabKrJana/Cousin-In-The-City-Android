@@ -6,6 +6,7 @@ import com.oneforth.cousininthecity.data.remote.dto.ChatInputDto
 import com.oneforth.cousininthecity.data.remote.dto.ChatThreadDto
 import com.oneforth.cousininthecity.data.remote.dto.MessageDto
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
@@ -38,4 +39,9 @@ interface CousinApi {
     suspend fun chat(
         @Body input: ChatInputDto
     ): AgentResponse
+
+    @DELETE("/api/chat/threads/{threadId}")
+    suspend fun deleteThread(
+        @Path("threadId") threadId: String
+    )
 }

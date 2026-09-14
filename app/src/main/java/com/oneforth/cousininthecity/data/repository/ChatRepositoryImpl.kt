@@ -100,6 +100,15 @@ class ChatRepositoryImpl @Inject constructor(
         threadDao.updatePinnedStatus(threadId, isPinned)
     }
 
+    override suspend fun deleteThread(threadId: String): Result<Unit> {
+        // Delete locally first for immediate UI feedback (Offline-first approach)
+        threadDao.deleteThread(threadId)
+        
+        return runCatching {
+            api.deleteThread(threadId)
+        }
+    }
+
     private fun stripLegacyIntentTags(text: String): String {
         var cleanText = text
         val jsonPattern = Pattern.compile("```(?:json|JSON)?\\s*(\\{.*?\\})\\s*```", Pattern.DOTALL)

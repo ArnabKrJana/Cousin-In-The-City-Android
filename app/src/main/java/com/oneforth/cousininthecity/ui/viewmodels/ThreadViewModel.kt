@@ -68,5 +68,15 @@ class ThreadViewModel @Inject constructor(
             getChatThreadsUseCase.togglePin(threadId, !currentPinStatus)
         }
     }
+
+    fun deleteThread(threadId: String) {
+        viewModelScope.launch {
+            try {
+                getChatThreadsUseCase.deleteThread(threadId)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(error = "Failed to delete thread from server.") }
+            }
+        }
+    }
 }
 

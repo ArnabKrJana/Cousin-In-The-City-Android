@@ -25,5 +25,9 @@ class GetChatThreadsUseCase @Inject constructor(
     suspend fun togglePin(threadId: String, isPinned: Boolean) {
         chatRepository.togglePinStatus(threadId, isPinned)
     }
+
+    suspend fun deleteThread(threadId: String) {
+        chatRepository.deleteThread(threadId)
+    }
 }
 

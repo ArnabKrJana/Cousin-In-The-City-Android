@@ -24,5 +24,8 @@ interface ThreadDao {
 
     @Query("UPDATE chat_threads SET lastUpdated = :timestamp WHERE id = :threadId")
     suspend fun updateLastUpdated(threadId: String, timestamp: Long): @JvmSuppressWildcards Int
+
+    @Query("DELETE FROM chat_threads WHERE id = :threadId")
+    suspend fun deleteThread(threadId: String): @JvmSuppressWildcards Int
 }
 

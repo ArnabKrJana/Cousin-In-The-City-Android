@@ -11,12 +11,14 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -52,10 +54,10 @@ fun CousinApp() {
     val threadViewModel: ThreadViewModel = hiltViewModel()
     val chatViewModel: ChatViewModel = hiltViewModel()
 
-    val threadUiState by threadViewModel.uiState.collectAsState()
-    val chatUiState by chatViewModel.uiState.collectAsState()
+    val threadUiState by threadViewModel.uiState.collectAsStateWithLifecycle()
+    val chatUiState by chatViewModel.uiState.collectAsStateWithLifecycle()
 
-    androidx.compose.runtime.LaunchedEffect(Unit) {
+  LaunchedEffect(Unit) {
         threadViewModel.loadThreads()
         chatViewModel.loadThread("1")
     }
@@ -66,7 +68,7 @@ fun CousinApp() {
             DrawerContent(
                 threadUiState = threadUiState,
                 onNewChat = {
-                    threadViewModel.createNewThread("New Relocation Plan") { newThreadId ->
+                    threadViewModel.createNewThread("Relocation Plan- ${threadUiState.threads.size+1}") { newThreadId ->
                         chatViewModel.loadThread(newThreadId)
                         scope.launch { drawerState.close() }
                     }
@@ -77,6 +79,9 @@ fun CousinApp() {
                 },
                 onTogglePin = { threadId, isPinned ->
                     threadViewModel.togglePin(threadId, isPinned)
+                },
+                onDeleteThread = { threadId ->
+                    threadViewModel.deleteThread(threadId)
                 },
                 modifier = Modifier.width(320.dp)
             )
