@@ -16,3 +16,8 @@ local.properties
 app/build
 .idea/
 all_spring_code.txt
+
+# Temporary Scripts
+all_android_code.txt
+extract_code.py
+todo.md
