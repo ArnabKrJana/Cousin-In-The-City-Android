@@ -10,6 +10,9 @@ import kotlinx.coroutines.flow.Flow
 @Dao
 interface ThreadDao {
 
+    @Query("SELECT * FROM chat_threads WHERE id = :threadId")
+    suspend fun getThreadById(threadId: String): @JvmSuppressWildcards ThreadEntity?
+
     @Query("SELECT * FROM chat_threads WHERE deviceId = :deviceId ORDER BY isPinned DESC, lastUpdated DESC")
     fun getThreadsFlow(deviceId: String): Flow<@JvmSuppressWildcards List<ThreadEntity>>
 
@@ -28,4 +31,3 @@ interface ThreadDao {
     @Query("DELETE FROM chat_threads WHERE id = :threadId")
     suspend fun deleteThread(threadId: String): @JvmSuppressWildcards Int
 }
-

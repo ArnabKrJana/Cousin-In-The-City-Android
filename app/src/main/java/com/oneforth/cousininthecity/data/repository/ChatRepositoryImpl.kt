@@ -1,7 +1,14 @@
 package com.oneforth.cousininthecity.data.repository
 
+import android.util.Log
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
+import com.oneforth.cousininthecity.data.local.UserPreferencesDataSource
 import com.oneforth.cousininthecity.data.local.dao.MessageDao
 import com.oneforth.cousininthecity.data.local.dao.ThreadDao
+import com.oneforth.cousininthecity.data.local.entity.ThreadEntity
 import com.oneforth.cousininthecity.data.mapper.toDomain
 import com.oneforth.cousininthecity.data.mapper.toEntity
 import com.oneforth.cousininthecity.data.remote.CousinApi
@@ -12,13 +19,14 @@ import com.oneforth.cousininthecity.domain.model.MessageRole
 import com.oneforth.cousininthecity.domain.repository.ChatRepository
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
-import javax.inject.Inject
 import java.util.regex.Pattern
+import javax.inject.Inject
 
 class ChatRepositoryImpl @Inject constructor(
     private val api: CousinApi,
     private val threadDao: ThreadDao,
-    private val messageDao: MessageDao
+    private val messageDao: MessageDao,
+    private val userPreferencesDataSource: UserPreferencesDataSource
 ) : ChatRepository {
 
     override fun getThreadsFlow(deviceId: String): Flow<List<ChatThread>> {
@@ -27,9 +35,15 @@ class ChatRepositoryImpl @Inject constructor(
         }
     }
 
-    override fun getHistoryFlow(threadId: String): Flow<List<ChatMessage>> {
-        return messageDao.getMessagesForThreadFlow(threadId).map { entities -> 
-            entities.map { it.toDomain() }
+    override fun getHistoryFlow(threadId: String): Flow<PagingData<ChatMessage>> {
+        return Pager(
+            config = PagingConfig(
+                pageSize = 20,
+                enablePlaceholders = false
+            ),
+            pagingSourceFactory = { messageDao.getMessagesForThreadPagingSource(threadId) }
+        ).flow.map { pagingData ->
+            pagingData.map { it.toDomain() }
         }
     }
 
@@ -45,9 +59,10 @@ class ChatRepositoryImpl @Inject constructor(
 
     override suspend fun refreshHistory(threadId: String): Result<Unit> {
         return runCatching {
+            ensureThreadExists(threadId)
             val remoteMessages = api.getHistory(threadId)
             val entities = remoteMessages.map { dto ->
-                val role = try { MessageRole.valueOf(dto.role.uppercase()) } catch (e: Exception) { MessageRole.USER }
+                val role = try { MessageRole.valueOf(dto.role.uppercase()) } catch (_: Exception) { MessageRole.USER }
                 val cleanText = stripLegacyIntentTags(dto.content)
                 ChatMessage(role = role, content = cleanText).toEntity(threadId)
             }
@@ -73,6 +88,9 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendMessage(prompt: String, conversationId: String): Result<ChatMessage> {
+        // Ensure parent thread exists locally before saving message (fixes Foreign Key constraint)
+        ensureThreadExists(conversationId)
+
         val userMessage = ChatMessage(role = MessageRole.USER, content = prompt)
         messageDao.insertMessage(userMessage.toEntity(conversationId))
         
@@ -90,7 +108,8 @@ class ChatRepositoryImpl @Inject constructor(
             messageDao.insertMessage(assistantMessage.toEntity(conversationId))
             threadDao.updateLastUpdated(conversationId, System.currentTimeMillis())
             assistantMessage
-        }.onFailure {
+        }.onFailure { e ->
+            Log.e("ChatRepositoryImpl", "sendMessage failed", e)
             // Option A Failure Strategy: Delete unsent user message so it doesnt hang
             messageDao.deleteMessage(userMessage.id)
         }
@@ -106,6 +125,21 @@ class ChatRepositoryImpl @Inject constructor(
         
         return runCatching {
             api.deleteThread(threadId)
+        }
+    }
+
+    private suspend fun ensureThreadExists(threadId: String) {
+        val existingThread = threadDao.getThreadById(threadId)
+        if (existingThread == null) {
+            val deviceId = userPreferencesDataSource.getOrCreateDeviceId()
+            val newThread = ThreadEntity(
+                id = threadId,
+                title = "Relocation Chat",
+                deviceId = deviceId,
+                isPinned = false,
+                lastUpdated = System.currentTimeMillis()
+            )
+            threadDao.insertThread(newThread)
         }
     }
 
@@ -129,4 +163,3 @@ class ChatRepositoryImpl @Inject constructor(
         return cleanText.trim()
     }
 }
-

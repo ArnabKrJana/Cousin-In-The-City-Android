@@ -16,8 +16,11 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object NetworkModule {
 
-    private const val BASE_URL = "http://192.168.0.103:8080/"
+    // For Physical Device on same Wi-Fi, use your PC's local IP: http://192.168.0.103:8080/
+    // For Android Emulator, use: http://10.0.2.2:8080/
 
+    private const val BASE_URL = "http://192.168.0.106:8080/"
+//    private const val BASE_URL = "http://10.0.2.2:8080/"
     @Provides
     @Singleton
     fun provideOkHttpClient(): OkHttpClient {
@@ -26,9 +29,10 @@ object NetworkModule {
         }
         return OkHttpClient.Builder()
             .addInterceptor(loggingInterceptor)
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(60, TimeUnit.SECONDS)
-            .writeTimeout(60, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
+            .writeTimeout(120, TimeUnit.SECONDS)
+            .callTimeout(120, TimeUnit.SECONDS)
             .build()
     }
 

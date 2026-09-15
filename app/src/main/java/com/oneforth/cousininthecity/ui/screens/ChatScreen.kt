@@ -1,64 +1,119 @@
 package com.oneforth.cousininthecity.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.paging.PagingData
+import androidx.paging.compose.collectAsLazyPagingItems
 import com.oneforth.cousininthecity.domain.model.ChatMessage
-import com.oneforth.cousininthecity.domain.model.MessageRole
 import com.oneforth.cousininthecity.ui.components.ChatShimmerBubble
 import com.oneforth.cousininthecity.ui.components.EmptyChatState
 import com.oneforth.cousininthecity.ui.components.MessageBubble
 import com.oneforth.cousininthecity.ui.viewmodels.ChatUiState
 import com.oneforth.cousininthecity.ui.viewmodels.UiEvent
 import com.oneforth.cousininthecity.util.NativeIntentUtils
+import com.oneforth.cousininthecity.util.VoiceToTextParser
+import com.oneforth.cousininthecity.util.VoiceToTextParserState
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
-    modifier: Modifier = Modifier,
     uiState: ChatUiState,
+    chatHistoryFlow: Flow<PagingData<ChatMessage>>,
     uiEventFlow: Flow<UiEvent>,
     onSendMessage: (String) -> Unit,
     onOpenDrawer: () -> Unit,
-    onToggleListening: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
-    val context = LocalContext.current
-    val snackbarHostState = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val isPreview = LocalInspectionMode.current
+    val messages = chatHistoryFlow.collectAsLazyPagingItems()
 
-    val isImeVisible = WindowInsets.isImeVisible
-    LaunchedEffect(uiState.messages.size, uiState.isChatLoading, isImeVisible) {
-        val totalItems = uiState.messages.size + (if (uiState.isChatLoading) 1 else 0)
-        if (totalItems > 0) {
-            listState.animateScrollToItem(totalItems - 1)
+    val voiceParser = if (isPreview) null else remember { VoiceToTextParser(context) }
+    val voiceStateFlow = remember(voiceParser) {
+        voiceParser?.state ?: MutableStateFlow(VoiceToTextParserState())
+    }
+    val voiceState by voiceStateFlow.collectAsState()
+
+    DisposableEffect(voiceParser) {
+        onDispose {
+            voiceParser?.destroy()
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(voiceState.error) {
+        voiceState.error?.let {
+            snackbarHostState.showSnackbar(it)
+            voiceParser?.reset()
+        }
+    }
+
+    LaunchedEffect(messages.itemCount) {
+        if (messages.itemCount > 0) {
+            listState.animateScrollToItem(0)
+        }
+    }
+
+    LaunchedEffect(uiEventFlow) {
         uiEventFlow.collect { event ->
             when (event) {
                 is UiEvent.ShowSnackbar -> {
@@ -87,7 +142,7 @@ fun ChatScreen(
 
     val isDark = isSystemInDarkTheme()
     val gradientColors = if (isDark) {
-        listOf(Color(0xFF0F0F11), Color(0xFF14244B))
+        listOf(Color(0xFF121318), Color(0xFF1E222D))
     } else {
         listOf(Color.White, Color(0xFFE3F2FD))
     }
@@ -120,13 +175,6 @@ fun ChatScreen(
                             Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
                     },
-                    actions = {
-                        IconButton(
-                            modifier = Modifier.visible(false),
-                            onClick = { /* Profile */ }) {
-                            Icon(Icons.Filled.AccountCircle, contentDescription = "Profile")
-                        }
-                    },
                     colors = TopAppBarDefaults.topAppBarColors(
                         containerColor = Color.Transparent
                     )
@@ -137,8 +185,11 @@ fun ChatScreen(
                 ChatInputField(
                     onSendMessage = onSendMessage,
                     isLoading = uiState.isLoading,
-                    isListening = uiState.isListening,
-                    onToggleListening = onToggleListening
+                    onStartListening = { voiceParser?.startListening() },
+                    onStopListening = { voiceParser?.stopListening() },
+                    onResetVoice = { voiceParser?.reset() },
+                    isSpeaking = voiceState.isSpeaking,
+                    spokenText = voiceState.spokenText
                 )
             }
         ) { paddingValues ->
@@ -148,7 +199,7 @@ fun ChatScreen(
                     .padding(paddingValues)
             ) {
                 Crossfade(
-                    targetState = uiState.messages.isEmpty(),
+                    targetState = messages.itemCount == 0,
                     label = "ChatStateAnimation"
                 ) { isEmpty ->
                     if (isEmpty) {
@@ -158,14 +209,20 @@ fun ChatScreen(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
                             contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            reverseLayout = true
                         ) {
-                            items(uiState.messages) { message ->
-                                MessageBubble(message)
-                            }
                             if (uiState.isChatLoading) {
                                 item {
                                     ChatShimmerBubble()
+                                }
+                            }
+                            items(
+                                count = messages.itemCount
+                            ) { index ->
+                                val message = messages[index]
+                                if (message != null) {
+                                    MessageBubble(message)
                                 }
                             }
                         }
@@ -180,10 +237,29 @@ fun ChatScreen(
 fun ChatInputField(
     onSendMessage: (String) -> Unit,
     isLoading: Boolean,
-    isListening: Boolean,
-    onToggleListening: () -> Unit
+    onStartListening: () -> Unit = {},
+    onStopListening: () -> Unit = {},
+    onResetVoice: () -> Unit = {},
+    isSpeaking: Boolean = false,
+    spokenText: String = ""
 ) {
     var text by remember { mutableStateOf("") }
+    val context = LocalContext.current
+
+    val recordAudioLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+        onResult = { isGranted ->
+            if (isGranted) {
+                onStartListening()
+            }
+        }
+    )
+
+    LaunchedEffect(spokenText) {
+        if (spokenText.isNotBlank()) {
+            text = spokenText
+        }
+    }
 
     Surface(
         modifier = Modifier
@@ -202,14 +278,10 @@ fun ChatInputField(
                 .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(modifier = Modifier.visible(false), onClick = { /* Attachment */ }) {
-                Icon(Icons.Default.Add, contentDescription = "Add")
-            }
-
             TextField(
                 value = text,
                 onValueChange = { text = it },
-                placeholder = { Text("Ask Cousin...") },
+                placeholder = { Text(if (isSpeaking) "Listening..." else "Ask Cousin...") },
                 modifier = Modifier.weight(1f),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent,
@@ -225,6 +297,7 @@ fun ChatInputField(
                     onClick = {
                         onSendMessage(text)
                         text = ""
+                        onResetVoice()
                     },
                     enabled = !isLoading,
                     contentPadding = PaddingValues(0.dp),
@@ -233,12 +306,26 @@ fun ChatInputField(
                     Text("➤")
                 }
             } else {
-                IconButton(onClick = {
-                    onToggleListening()
-                }) {
+                IconButton(
+                    onClick = {
+                        if (isSpeaking) {
+                            onStopListening()
+                        } else {
+                            if (ContextCompat.checkSelfPermission(
+                                    context,
+                                    Manifest.permission.RECORD_AUDIO
+                                ) == PackageManager.PERMISSION_GRANTED
+                            ) {
+                                onStartListening()
+                            } else {
+                                recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                            }
+                        }
+                    }
+                ) {
                     Icon(
-                        Icons.Default.FiberManualRecord,
-                        tint = if (isListening) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        Icons.Default.Mic,
+                        tint = if (isSpeaking) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         contentDescription = "Mic"
                     )
                 }
@@ -252,63 +339,8 @@ fun ChatInputField(
 fun ChatScreenPreview() {
     MaterialTheme {
         ChatScreen(
-            uiState = ChatUiState(
-                messages = listOf(
-                    ChatMessage(
-                        role = MessageRole.USER,
-                        content = "Hi, I need recommendations for visiting Mumbai."
-                    ),
-                    ChatMessage(
-                        role = MessageRole.ASSISTANT,
-                        content = """
-                            Sure! Here are some top recommendations for **Mumbai**:
-
-                            * **Marine Drive** - Great for evening walks
-                            * **Gateway of India** - Historic landmark
-
-                            ```
-                            Recommended time: 2-3 Days
-                            ```
-                        """.trimIndent()
-                    )
-                ),
-                isLoading = false
-            ),
-            uiEventFlow = emptyFlow(),
-            onSendMessage = {},
-            onOpenDrawer = {}
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun EmptyChatScreenPreview() {
-    MaterialTheme {
-        ChatScreen(
-            uiState = ChatUiState(messages = emptyList(), isLoading = false),
-            uiEventFlow = emptyFlow(),
-            onSendMessage = {},
-            onOpenDrawer = {}
-        )
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun ChatLoadingScreenPreview() {
-    MaterialTheme {
-        ChatScreen(
-            uiState = ChatUiState(
-                messages = listOf(
-                    ChatMessage(
-                        role = MessageRole.USER,
-                        content = "Hi, can you recommend some places to visit in Mumbai?"
-                    )
-                ),
-                isLoading = true,
-                isChatLoading = true
-            ),
+            uiState = ChatUiState(isLoading = false),
+            chatHistoryFlow = emptyFlow(),
             uiEventFlow = emptyFlow(),
             onSendMessage = {},
             onOpenDrawer = {}

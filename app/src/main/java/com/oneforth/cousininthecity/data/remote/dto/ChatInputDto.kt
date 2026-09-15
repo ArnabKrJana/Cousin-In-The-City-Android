@@ -1,6 +1,8 @@
 package com.oneforth.cousininthecity.data.remote.dto
 
+import com.google.gson.annotations.SerializedName
+
 data class ChatInputDto(
-    val prompt: String,
-    val conversationId: String
+    @SerializedName("prompt") val prompt: String,
+    @SerializedName("conversationId") val conversationId: String
 )

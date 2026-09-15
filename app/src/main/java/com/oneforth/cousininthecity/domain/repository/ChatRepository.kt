@@ -4,9 +4,11 @@ import com.oneforth.cousininthecity.domain.model.ChatMessage
 import com.oneforth.cousininthecity.domain.model.ChatThread
 import kotlinx.coroutines.flow.Flow
 
+import androidx.paging.PagingData
+
 interface ChatRepository {
     fun getThreadsFlow(deviceId: String): Flow<List<ChatThread>>
-    fun getHistoryFlow(threadId: String): Flow<List<ChatMessage>>
+    fun getHistoryFlow(threadId: String): Flow<PagingData<ChatMessage>>
     
     suspend fun refreshThreads(deviceId: String): Result<Unit>
     suspend fun refreshHistory(threadId: String): Result<Unit>

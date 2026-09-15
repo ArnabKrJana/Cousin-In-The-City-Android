@@ -5,10 +5,12 @@ import com.oneforth.cousininthecity.domain.repository.ChatRepository
 import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 
+import androidx.paging.PagingData
+
 class GetChatHistoryUseCase @Inject constructor(
     private val repository: ChatRepository
 ) {
-    operator fun invoke(threadId: String): Flow<List<ChatMessage>> {
+    operator fun invoke(threadId: String): Flow<PagingData<ChatMessage>> {
         return repository.getHistoryFlow(threadId)
     }
     

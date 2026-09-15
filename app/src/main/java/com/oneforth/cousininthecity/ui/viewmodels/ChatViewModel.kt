@@ -1,29 +1,36 @@
 package com.oneforth.cousininthecity.ui.viewmodels
 
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import com.google.gson.JsonSyntaxException
 import com.oneforth.cousininthecity.domain.model.ChatMessage
-import com.oneforth.cousininthecity.domain.model.MessageRole
 import com.oneforth.cousininthecity.domain.usecase.GetChatHistoryUseCase
 import com.oneforth.cousininthecity.domain.usecase.SendMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import javax.inject.Inject
+import retrofit2.HttpException
+import java.net.ConnectException
+import java.net.SocketTimeoutException
 import java.util.regex.Pattern
+import javax.inject.Inject
 
 data class ChatUiState(
-    val messages: List<ChatMessage> = emptyList(),
     val isLoading: Boolean = false,
-    val isListening: Boolean = false,
     val threadId: String? = null,
-    val isChatLoading: Boolean = false
+    val isChatLoading: Boolean = false,
 )
 
 sealed class UiEvent {
@@ -45,33 +52,33 @@ class ChatViewModel @Inject constructor(
     private val _uiEvent = Channel<UiEvent>()
     val uiEvent = _uiEvent.receiveAsFlow()
 
-    private var historyJob: Job? = null
-
-    fun loadThread(threadId: String) {
-        _uiState.update { it.copy(threadId = threadId, isLoading = true) }
-        
-        // Cancel previous collection if switching threads
-        historyJob?.cancel()
-        
-        historyJob = viewModelScope.launch {
-            getChatHistoryUseCase(threadId).collect { history ->
-                _uiState.update { it.copy(messages = history, isLoading = false) }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val chatHistory: Flow<PagingData<ChatMessage>> = _uiState
+        .flatMapLatest { state ->
+            val id = state.threadId
+            if (id == null) {
+                emptyFlow()
+            } else {
+                getChatHistoryUseCase(id).cachedIn(viewModelScope)
             }
         }
+
+    fun loadThread(threadId: String) {
+        _uiState.update { it.copy(threadId = threadId, isLoading = false) }
         
         // Silently sync from backend
         viewModelScope.launch {
             try {
                 getChatHistoryUseCase.refresh(threadId)
             } catch (e: Exception) {
+                Log.w("ChatViewModel", "Failed to sync history for thread $threadId", e)
                 _uiEvent.send(UiEvent.ShowSnackbar("Failed to sync chat history. Swipe down to retry."))
             }
         }
     }
 
-    fun toggleListening() {
-        val currentlyListening = _uiState.value.isListening
-        _uiState.update { it.copy(isListening = !currentlyListening) }
+    fun clearThread() {
+        _uiState.update { it.copy(threadId = null, isLoading = false) }
     }
 
     fun sendMessage(prompt: String) {
@@ -81,17 +88,26 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // This triggers Option A: local save, API call, and failure cleanup.
                 val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
                 
-                // Intents and Fallbacks are handled via the newly returned message
                 processStructuredIntent(responseMsg)
                 extractAndExecuteFallbackIntent(responseMsg.content)
                 
                 _uiState.update { it.copy(isChatLoading = false) }
             } catch (e: Exception) {
+                Log.e("ChatViewModel", "sendMessage failed", e)
                 _uiState.update { it.copy(isChatLoading = false) }
-                _uiEvent.send(UiEvent.ShowSnackbar("Network error: Could not reach Agent Orchestrator. Message unsent."))
+                val errorMessage = when (e) {
+                    is HttpException -> {
+                        val errorBody = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
+                        "HTTP ${e.code()}: ${errorBody?.take(120) ?: e.message()}"
+                    }
+                    is ConnectException -> "Connection refused: Check server at 192.168.0.103:8080"
+                    is SocketTimeoutException -> "Connection timed out to 192.168.0.103:8080"
+                    is JsonSyntaxException -> "JSON format mismatch from server: ${e.message}"
+                    else -> e.localizedMessage ?: "Error: ${e.javaClass.simpleName}"
+                }
+                _uiEvent.send(UiEvent.ShowSnackbar(errorMessage))
             }
         }
     }
@@ -124,7 +140,6 @@ class ChatViewModel @Inject constructor(
     }
 
     private fun extractAndExecuteFallbackIntent(text: String) {
-        // Fallback processing for XML Intents that escaped structured JSON parsing
         val xmlPattern = Pattern.compile("<INTENT\\s+(.*?)\\s*/>", Pattern.CASE_INSENSITIVE or Pattern.DOTALL)
         val xmlMatcher = xmlPattern.matcher(text)
         
@@ -155,4 +170,3 @@ class ChatViewModel @Inject constructor(
         }
     }
 }
-

@@ -82,6 +82,14 @@ fun CousinApp() {
                 },
                 onDeleteThread = { threadId ->
                     threadViewModel.deleteThread(threadId)
+                    if (chatUiState.threadId == threadId) {
+                        val remainingThreads = threadUiState.threads.filter { it.id != threadId }
+                        if (remainingThreads.isNotEmpty()) {
+                            chatViewModel.loadThread(remainingThreads.first().id)
+                        } else {
+                            chatViewModel.clearThread()
+                        }
+                    }
                 },
                 modifier = Modifier.width(320.dp)
             )
@@ -91,10 +99,10 @@ fun CousinApp() {
             composable("chat") {
                 ChatScreen(
                     uiState = chatUiState,
+                    chatHistoryFlow = chatViewModel.chatHistory,
                     uiEventFlow = chatViewModel.uiEvent,
-                    onSendMessage = { prompt -> chatViewModel.sendMessage(prompt) },
-                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                    onToggleListening = { chatViewModel.toggleListening() }
+                    onSendMessage = chatViewModel::sendMessage,
+                    onOpenDrawer = { scope.launch { drawerState.open() } }
                 )
             }
         }

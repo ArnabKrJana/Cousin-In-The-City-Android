@@ -16,8 +16,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.oneforth.cousininthecity.domain.model.ChatThread
 import com.oneforth.cousininthecity.ui.components.ThreadItem
+import com.oneforth.cousininthecity.ui.theme.CousinInTheCityAndroidTheme
 import com.oneforth.cousininthecity.ui.viewmodels.ThreadUiState
+import androidx.compose.ui.tooling.preview.Preview
 
 @Composable
 fun DrawerContent(
@@ -120,6 +123,48 @@ fun DrawerContent(
                 }
             }
         }
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun DrawerContentPreview() {
+    CousinInTheCityAndroidTheme {
+        DrawerContent(
+            threadUiState = ThreadUiState(
+                threads = listOf(
+                    ChatThread(
+                        id = "1",
+                        deviceId = "dev1",
+                        title = "Mumbai Trip Recommendations",
+                        isPinned = true
+                    ),
+                    ChatThread(
+                        id = "2",
+                        deviceId = "dev1",
+                        title = "Best Restaurants in Delhi",
+                        isPinned = true
+                    ),
+                    ChatThread(
+                        id = "3",
+                        deviceId = "dev1",
+                        title = "Weekend Getaways near Bangalore",
+                        isPinned = false
+                    ),
+                    ChatThread(
+                        id = "4",
+                        deviceId = "dev1",
+                        title = "Itinerary for Goa",
+                        isPinned = false
+                    )
+                ),
+                isLoading = false
+            ),
+            onNewChat = {},
+            onThreadSelected = {},
+            onTogglePin = { _, _ -> },
+            onDeleteThread = {}
+        )
     }
 }
 
