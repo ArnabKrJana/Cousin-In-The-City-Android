@@ -8,6 +8,7 @@ import androidx.paging.cachedIn
 import com.google.gson.JsonSyntaxException
 import com.oneforth.cousininthecity.domain.model.ChatMessage
 import com.oneforth.cousininthecity.domain.usecase.GetChatHistoryUseCase
+import com.oneforth.cousininthecity.domain.usecase.CreateChatThreadUseCase
 import com.oneforth.cousininthecity.domain.usecase.SendMessageUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,10 +41,13 @@ sealed class UiEvent {
     data class JarvisSaveNote(val title: String, val note: String) : UiEvent()
 }
 
+
+
 @HiltViewModel
 class ChatViewModel @Inject constructor(
     private val sendMessageUseCase: SendMessageUseCase,
-    private val getChatHistoryUseCase: GetChatHistoryUseCase
+    private val getChatHistoryUseCase: GetChatHistoryUseCase,
+    private val createChatThreadUseCase: CreateChatThreadUseCase
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ChatUiState())
@@ -82,12 +86,19 @@ class ChatViewModel @Inject constructor(
     }
 
     fun sendMessage(prompt: String) {
-        val currentThreadId = _uiState.value.threadId ?: return
-        
         _uiState.update { it.copy(isChatLoading = true) }
 
         viewModelScope.launch {
             try {
+                // Gemini/ChatGPT Behavior: If no thread is active, automatically create one using the prompt as the title
+                val currentThreadId = _uiState.value.threadId ?: run {
+                    val generatedTitle = prompt.take(30).trim() + if (prompt.length > 30) "..." else ""
+                    val newThread = createChatThreadUseCase(generatedTitle).getOrThrow()
+                    // Immediately update UI state so PagingData starts listening to the new thread
+                    _uiState.update { it.copy(threadId = newThread.id) }
+                    newThread.id
+                }
+
                 val responseMsg = sendMessageUseCase(prompt, currentThreadId).getOrThrow()
                 
                 processStructuredIntent(responseMsg)

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "86001671148",
+    "project_id": "cousininthecity-66cd9",
+    "storage_bucket": "cousininthecity-66cd9.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:86001671148:android:222f326539021c4016fec9",
+        "android_client_info": {
+          "package_name": "com.oneforth.cousininthecity"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD6a-8Awiu6ZATzlKlAPgA3Pri0IfZQQK8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:86001671148:android:222f326539021c4016fec9",
+        "android_client_info": {
+          "package_name": "com.oneforth.cousininthecity.test"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD6a-8Awiu6ZATzlKlAPgA3Pri0IfZQQK8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

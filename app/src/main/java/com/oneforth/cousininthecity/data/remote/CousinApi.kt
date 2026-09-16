@@ -11,6 +11,7 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.PUT
 
 interface CousinApi {
 
@@ -40,8 +41,16 @@ interface CousinApi {
         @Body input: ChatInputDto
     ): AgentResponse
 
+
+
     @DELETE("/api/chat/threads/{threadId}")
     suspend fun deleteThread(
         @Path("threadId") threadId: String
+    )
+
+    @PUT("/api/chat/users/{deviceId}/fcm-token")
+    suspend fun updateFcmToken(
+        @Path("deviceId") deviceId: String,
+        @Query("token") token: String
     )
 }

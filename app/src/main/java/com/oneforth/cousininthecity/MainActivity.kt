@@ -57,9 +57,19 @@ fun CousinApp() {
     val threadUiState by threadViewModel.uiState.collectAsStateWithLifecycle()
     val chatUiState by chatViewModel.uiState.collectAsStateWithLifecycle()
 
-  LaunchedEffect(Unit) {
+    val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        // Handle permission result if needed
+    }
+
+    LaunchedEffect(Unit) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         threadViewModel.loadThreads()
-        chatViewModel.loadThread("1")
+        // Start with a blank "New Chat" window (like Gemini/ChatGPT)
+        chatViewModel.clearThread()
     }
 
     ModalNavigationDrawer(
@@ -68,10 +78,9 @@ fun CousinApp() {
             DrawerContent(
                 threadUiState = threadUiState,
                 onNewChat = {
-                    threadViewModel.createNewThread("Relocation Plan- ${threadUiState.threads.size+1}") { newThreadId ->
-                        chatViewModel.loadThread(newThreadId)
-                        scope.launch { drawerState.close() }
-                    }
+                    // Just clear the screen. The thread will be created when they send the first message!
+                    chatViewModel.clearThread()
+                    scope.launch { drawerState.close() }
                 },
                 onThreadSelected = { threadId ->
                     chatViewModel.loadThread(threadId)

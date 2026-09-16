@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+    id("com.google.gms.google-services")
 }
 
 
@@ -135,6 +136,10 @@ dependencies {
 
     //---  GSON SERIALIZATION  ---
     implementation("com.google.code.gson:gson:2.14.0")
+
+    //Firebase BoM
+    implementation(platform("com.google.firebase:firebase-bom:34.19.0"))
+    implementation("com.google.firebase:firebase-messaging")
 
     // --- TEST LAB SUITE ---
     testImplementation(libs.junit)
