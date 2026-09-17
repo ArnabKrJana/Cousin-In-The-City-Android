@@ -70,7 +70,6 @@ class ChatViewModel @Inject constructor(
     fun loadThread(threadId: String) {
         _uiState.update { it.copy(threadId = threadId, isLoading = false) }
         
-        // Silently sync from backend
         viewModelScope.launch {
             try {
                 getChatHistoryUseCase.refresh(threadId)
@@ -90,11 +89,9 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
-                // Gemini/ChatGPT Behavior: If no thread is active, automatically create one using the prompt as the title
                 val currentThreadId = _uiState.value.threadId ?: run {
                     val generatedTitle = prompt.take(30).trim() + if (prompt.length > 30) "..." else ""
                     val newThread = createChatThreadUseCase(generatedTitle).getOrThrow()
-                    // Immediately update UI state so PagingData starts listening to the new thread
                     _uiState.update { it.copy(threadId = newThread.id) }
                     newThread.id
                 }

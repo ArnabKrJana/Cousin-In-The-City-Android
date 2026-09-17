@@ -43,7 +43,6 @@ object NativeIntentUtils {
      */
     fun addCalendarEvent(context: Context, title: String?, dateStr: String?, timeStr: String?) {
         val intent = Intent(Intent.ACTION_INSERT).apply {
-            // Reverted to standard data URI (removed strict MIME type which caused the OS block)
             data = CalendarContract.Events.CONTENT_URI
             putExtra(CalendarContract.Events.TITLE, title ?: "New Event")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -58,7 +57,6 @@ object NativeIntentUtils {
                     putExtra(CalendarContract.EXTRA_EVENT_END_TIME, startMillis + (1000 * 60 * 60))
                 } catch (e: Exception) {
                     Log.e("NativeIntentUtils", "Failed to parse calendar date/time", e)
-                    // Fallback to text description if parse fails
                     putExtra(CalendarContract.Events.DESCRIPTION, "Date: $dateStr\nTime: $timeStr")
                 }
             } else if (!dateStr.isNullOrBlank()) {
@@ -87,13 +85,11 @@ object NativeIntentUtils {
         }
 
         try {
-            // Attempt to target Google Keep directly
             val keepIntent = Intent(intent).apply {
                 setPackage("com.google.android.keep")
             }
             context.startActivity(keepIntent)
         } catch (e: Exception) {
-            // Fallback to chooser for saving note or sharing
             val chooser = Intent.createChooser(intent, "Save Note").apply {
                 flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }

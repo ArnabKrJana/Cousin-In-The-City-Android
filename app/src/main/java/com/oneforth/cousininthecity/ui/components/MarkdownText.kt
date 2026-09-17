@@ -164,7 +164,6 @@ private fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedStr
 
         while (i < len) {
             when {
-                // Bold: **text**
                 i + 1 < len && text[i] == '*' && text[i + 1] == '*' -> {
                     val end = text.indexOf("**", i + 2)
                     if (end != -1) {
@@ -177,7 +176,6 @@ private fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedStr
                         i++
                     }
                 }
-                // Inline code: `text`
                 text[i] == '`' -> {
                     val end = text.indexOf('`', i + 1)
                     if (end != -1) {
@@ -196,7 +194,6 @@ private fun parseInlineMarkdown(text: String, defaultColor: Color): AnnotatedStr
                         i++
                     }
                 }
-                // Italic: *text*
                 text[i] == '*' -> {
                     val end = text.indexOf('*', i + 1)
                     if (end != -1) {

@@ -36,7 +36,6 @@ fun DrawerContent(
         drawerContainerColor = MaterialTheme.colorScheme.surface
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -46,7 +45,6 @@ fun DrawerContent(
                 Text("Cousin Assistant", fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             }
 
-            // New Chat Button
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -67,7 +65,6 @@ fun DrawerContent(
 
             Spacer(modifier = Modifier.height(24.dp))
             
-            // Thread List
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

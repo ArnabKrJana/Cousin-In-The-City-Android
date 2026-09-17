@@ -110,7 +110,6 @@ private class SpeechRecognizerHandler(
         try {
             recognizer?.stopListening()
         } catch (_: Exception) {
-            // Ignore stop errors
         }
     }
 
@@ -119,7 +118,6 @@ private class SpeechRecognizerHandler(
             recognizer?.cancel()
             recognizer?.destroy()
         } catch (_: Exception) {
-            // Ignore cleanup errors
         } finally {
             recognizer = null
         }

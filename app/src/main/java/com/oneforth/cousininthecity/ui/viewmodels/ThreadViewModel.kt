@@ -29,7 +29,6 @@ class ThreadViewModel @Inject constructor(
     val uiState: StateFlow<ThreadUiState> = _uiState.asStateFlow()
 
     init {
-        // Collect offline-first Flow
         viewModelScope.launch {
             getChatThreadsUseCase().collect { threadList ->
                 _uiState.update { it.copy(threads = threadList) }
@@ -41,7 +40,6 @@ class ThreadViewModel @Inject constructor(
         _uiState.update { it.copy(isLoading = true, error = null) }
         viewModelScope.launch {
             try {
-                // Silently refresh in background
                 getChatThreadsUseCase.refresh()
                 _uiState.update { it.copy(isLoading = false) }
             } catch (e: Exception) {

@@ -59,16 +59,13 @@ fun CousinApp() {
 
     val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        // Handle permission result if needed
-    }
+    ) { _ -> }
 
     LaunchedEffect(Unit) {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
             permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         threadViewModel.loadThreads()
-        // Start with a blank "New Chat" window (like Gemini/ChatGPT)
         chatViewModel.clearThread()
     }
 
@@ -78,7 +75,6 @@ fun CousinApp() {
             DrawerContent(
                 threadUiState = threadUiState,
                 onNewChat = {
-                    // Just clear the screen. The thread will be created when they send the first message!
                     chatViewModel.clearThread()
                     scope.launch { drawerState.close() }
                 },

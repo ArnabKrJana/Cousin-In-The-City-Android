@@ -88,7 +88,6 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun sendMessage(prompt: String, conversationId: String): Result<ChatMessage> {
-        // Ensure parent thread exists locally before saving message (fixes Foreign Key constraint)
         ensureThreadExists(conversationId)
 
         val userMessage = ChatMessage(role = MessageRole.USER, content = prompt)
@@ -110,7 +109,6 @@ class ChatRepositoryImpl @Inject constructor(
             assistantMessage
         }.onFailure { e ->
             Log.e("ChatRepositoryImpl", "sendMessage failed", e)
-            // Option A Failure Strategy: Delete unsent user message so it doesnt hang
             messageDao.deleteMessage(userMessage.id)
         }
     }
@@ -120,7 +118,6 @@ class ChatRepositoryImpl @Inject constructor(
     }
 
     override suspend fun deleteThread(threadId: String): Result<Unit> {
-        // Delete locally first for immediate UI feedback (Offline-first approach)
         threadDao.deleteThread(threadId)
         
         return runCatching {
