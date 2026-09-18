@@ -14,6 +14,9 @@
   <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/Jetpack_Compose-4285F4?style=for-the-badge&logo=android&logoColor=white" alt="Jetpack Compose"/></a>
 </p>
 
+## 🎥 Working Demo
+[![Cousin In The City Working Demo](https://img.youtube.com/vi/uh3yX3Bqu-w/0.jpg)](https://www.youtube.com/watch?v=uh3yX3Bqu-w)
+
 An intelligent, AI-powered native Android application designed to act as a personal assistant for users relocating to or navigating a new city. This repository contains the front-end Android client, which seamlessly integrates with the [Cousin In The City Backend](https://github.com/ArnabKrJana/Cousin-In-The-City.git) (Spring Boot AI orchestrator).
 
 ---
